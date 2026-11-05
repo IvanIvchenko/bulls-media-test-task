@@ -30,7 +30,18 @@ export class DraftReplyNode implements AgentNode {
     if (!state.ticket) {
       return {
         reply: fallback,
+        replyFlags: [],
         trace: step(state, { step: STEP.DRAFT_REPLY, ok: true, detail: 'template (invalid input)' }),
+      };
+    }
+
+    // A refusal is fixed text, the same for every ticket: a wrong sender and an unknown order must get the very same
+    // words, byte for byte, and a model's wording would only add variation (real runs worded the two differently).
+    if (decision === 'refuse') {
+      return {
+        reply: fallback,
+        replyFlags: [],
+        trace: step(state, { step: STEP.DRAFT_REPLY, ok: true, detail: 'template (refusals are fixed text)' }),
       };
     }
 
@@ -46,18 +57,20 @@ export class DraftReplyNode implements AgentNode {
         allowedText: [...context.facts, ...context.policyNotes],
       });
       if (problems.length) {
+        // Debug level only: the draft is model output about a customer, kept out of the normal logs and the trace.
+        this.logger.debug('reply draft rejected', { ticketId: state.ticket.ticketId, problems, draft });
         return {
           reply: fallback,
-          flags: [FLAG.REPLY_REJECTED_BY_GUARD],
+          replyFlags: [FLAG.REPLY_REJECTED_BY_GUARD],
           trace: trace(false, `rejected: ${problems.join('; ')}; used template`, usage),
         };
       }
-      return { reply: draft, trace: trace(true, 'reply drafted', usage) };
+      return { reply: draft, replyFlags: [], trace: trace(true, 'reply drafted', usage) };
     } catch (error) {
       this.logger.warn('reply drafting failed', { ticketId: state.ticket?.ticketId, err: String(error) });
       return {
         reply: fallback,
-        flags: [FLAG.REPLY_LLM_FAILED],
+        replyFlags: [FLAG.REPLY_LLM_FAILED],
         trace: trace(false, `reply drafting failed (${summarizeError(error)}); used template`),
       };
     }

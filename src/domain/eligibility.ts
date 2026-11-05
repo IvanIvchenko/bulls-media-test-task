@@ -105,7 +105,7 @@ export function checkRefundEligibility(
       reasons: [
         `Amount ${order.amount.toFixed(2)} exceeds auto-approval limit ${policy.autoApproveLimit.amount.toFixed(2)}.`,
       ],
-      facts: ['Refunds of this size need a manual review before any money is returned.'],
+      facts: ['Refunds of this size need a manual review first.'],
       citations: [policy.autoApproveLimit.ruleId],
     };
   }

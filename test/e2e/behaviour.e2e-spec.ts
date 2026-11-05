@@ -133,6 +133,22 @@ describe('agent behaviour', () => {
     expect(a.reply).toBe(b.reply);
   });
 
+  it('gives the same refusal, byte for byte, even when the model would word every reply differently', async () => {
+    let drafts = 0;
+    const chatty: LLM = {
+      ...new MockLlmService(),
+      name: 'chatty',
+      classify: (t) => new MockLlmService().classify(t),
+      draftReply: async () => answered(`Reply number ${++drafts}, worded differently each time.`),
+    };
+    const container = await createTestContainer({ llm: chatty });
+    const wrongSender = await run(ticket({ customerEmail: 'mallory@example.com' }), container);
+    const unknownOrder = await run(ticket({ orderId: 'ORD-9999' }), container);
+    expect(wrongSender.decision).toBe('refuse');
+    expect(wrongSender.reply).toBe(unknownOrder.reply);
+    expect(drafts).toBe(0); // the model was never asked
+  });
+
   it('invalid input is refused and the LLM is never called', async () => {
     let calls = 0;
     const spy: LLM = {

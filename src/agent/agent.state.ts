@@ -64,6 +64,11 @@ export const State = Annotation.Root({
   // -- output (draft_reply, finalize)
   reply: Annotation<string>,
   flags: Annotation<string[]>(appended<string>()),
+  /**
+   * What went wrong with the latest reply draft. Replaced, not appended: when a reviewer's answer makes the reply be
+   * written again, a problem with the first draft must not stay on a result whose final reply was fine.
+   */
+  replyFlags: Annotation<string[]>(replaced<string>()),
   trace: Annotation<TraceEntry[]>(appended<TraceEntry>()),
   result: Annotation<Result | undefined>,
 });

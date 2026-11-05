@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
+import { MockLlmService } from '../../src/llm/mock.service.js';
 import { openTestDatabase } from '../support/database.js';
 import { createTestServer, ticket } from '../support/helpers.js';
+import { answered } from '../support/llm.js';
 
 /*
  * Human review of escalations: the run pauses after the customer has been answered, a person says yes or no, and the
@@ -177,6 +179,28 @@ describe('the reviewer’s answer', () => {
     const replay = (await submit(s)).json();
     expect(replay).toMatchObject({ decision: 'approve', refundAmount: 149 }); // the ticket got its refund
     expect(await s.container.database('graph_checkpoints').count({ n: '*' }).first()).toEqual({ n: 0 });
+  });
+
+  it('does not leave a flag from the first reply on a result whose redrafted reply was fine', async () => {
+    let drafts = 0;
+    const llm = {
+      ...new MockLlmService(),
+      name: 'two-drafts',
+      classify: (ticketToRead: Parameters<MockLlmService['classify']>[0]) =>
+        new MockLlmService().classify(ticketToRead),
+      // The first reply promises money before anyone has decided (the guard rejects it); the second is fine.
+      draftReply: async () =>
+        answered(
+          ++drafts === 1 ? 'Good news, we will refund you in full!' : 'Your refund of 149.00 has been approved.',
+        ),
+    };
+    const s = await server({ llm });
+    const first = await submit(s);
+    expect(first.json().flags).toContain('reply_rejected_by_guard'); // true of the reply the customer got then
+
+    const response = await decide(s, await firstReview(s), { action: 'approve', reviewer: 'Maria' });
+    expect(response.json().reply).toBe('Your refund of 149.00 has been approved.');
+    expect(response.json().flags).not.toContain('reply_rejected_by_guard'); // the final reply was fine
   });
 
   it('pays nothing, and sends it back to a person, when the order changed while the review waited', async () => {

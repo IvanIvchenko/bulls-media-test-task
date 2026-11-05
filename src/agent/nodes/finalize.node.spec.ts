@@ -122,4 +122,19 @@ describe('FinalizeNode', () => {
     const { result } = await new FinalizeNode(trail, () => NOW).execute(finalState());
     expect(result?.usage).toEqual({ llmCalls: 0, inputTokens: 0, outputTokens: 0, llmMs: 0 });
   });
+
+  it('puts the flags of the latest reply draft on the result with the rest, once each', async () => {
+    const { audit: trail } = audit();
+    const { result } = await new FinalizeNode(trail, () => NOW).execute(
+      finalState({ flags: ['order_id_conflict', 'reply_llm_failed'], replyFlags: ['reply_llm_failed'] }),
+    );
+    expect(result?.flags).toEqual(['order_id_conflict', 'reply_llm_failed']);
+    expect(result?.summary).toContain('Flags: order_id_conflict, reply_llm_failed.');
+  });
+
+  it('has no reply flag when the latest draft was fine, which is what a redraft after a review leaves', async () => {
+    const { audit: trail } = audit();
+    const { result } = await new FinalizeNode(trail, () => NOW).execute(finalState({ replyFlags: [] }));
+    expect(result?.flags).toEqual([]);
+  });
 });

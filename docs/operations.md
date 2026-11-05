@@ -50,19 +50,19 @@ Limits: a review never expires and nobody is notified (poll `GET /reviews`), and
 
 Validated at startup and read only through `ConfigService`.
 
-| Variable                            | Default                                  |
-| ----------------------------------- | ---------------------------------------- |
-| `ANTHROPIC_API_KEY`                 | unset: mock model                        |
-| `ANTHROPIC_MODEL`                   | `claude-haiku-5-5`                       |
-| `LLM_TIMEOUT_MS`, `LLM_MAX_RETRIES` | `20000`, `2`                             |
-| `LLM_RETRY_BASE_MS`                 | `200` (doubles per retry, with jitter)   |
-| `DATABASE_PATH`                     | CLI: in-memory. Service: `data/store.db` |
-| `HOST`, `PORT`, `BODY_LIMIT_BYTES`  | `127.0.0.1`, `3000`, `16384`             |
-| `NODE_ENV`                          | `development`                            |
-| `REQUIRE_LLM`                       | `true` in production, else `false`       |
-| `SEED_SAMPLE_ORDERS`                | `false` in production, else `true`       |
-| `REVIEW_TOKEN`                      | unset: no human review                   |
-| `LOG_LEVEL`                         | `info`                                   |
+| Variable                            | Default                                                    |
+| ----------------------------------- | ---------------------------------------------------------- |
+| `ANTHROPIC_API_KEY`                 | unset: mock model                                          |
+| `ANTHROPIC_MODEL`                   | `claude-haiku-5-5`                                         |
+| `LLM_TIMEOUT_MS`, `LLM_MAX_RETRIES` | `20000`, `2`                                               |
+| `LLM_RETRY_BASE_MS`                 | `200` (doubles per retry, with jitter)                     |
+| `DATABASE_PATH`                     | CLI: in-memory. Service: `data/store.db`                   |
+| `HOST`, `PORT`, `BODY_LIMIT_BYTES`  | `127.0.0.1`, `3000`, `16384`                               |
+| `NODE_ENV`                          | `development`                                              |
+| `REQUIRE_LLM`                       | `true` in production, else `false`                         |
+| `SEED_SAMPLE_ORDERS`                | `false` in production, else `true`                         |
+| `REVIEW_TOKEN`                      | unset: no human review                                     |
+| `LOG_LEVEL`                         | `info` (`debug` also logs reply drafts the guard rejected) |
 
 With `NODE_ENV=production` the service refuses to start without a key and does not seed demo orders.
 

@@ -19,13 +19,13 @@ describe('DraftReplyNode', () => {
   it('uses the model draft when it passes the guard', async () => {
     const update = await new DraftReplyNode(fakeLlm()).execute(replyState());
     expect(update.reply).toBe('Hello, we cannot refund this order.');
-    expect(update.flags).toBeUndefined();
+    expect(update.replyFlags).toEqual([]); // a good draft clears what an earlier draft was flagged for
   });
 
   it('falls back to the template, and says so, when the guard rejects the draft', async () => {
     const promising = fakeLlm({ draftReply: async () => answered('Good news, we will refund you in full!') });
     const update = await new DraftReplyNode(promising).execute(replyState());
-    expect(update.flags).toEqual(['reply_rejected_by_guard']);
+    expect(update.replyFlags).toEqual(['reply_rejected_by_guard']);
     expect(update.reply).toMatch(/unfortunately we cannot refund/i);
     expect(update.trace?.[0]).toMatchObject({ ok: false, detail: expect.stringContaining('promises money') });
   });
@@ -34,13 +34,13 @@ describe('DraftReplyNode', () => {
     const invented = fakeLlm({
       draftReply: async () => answered('We cannot refund this, but a colleague will write within 2 days.'),
     });
-    expect((await new DraftReplyNode(invented).execute(replyState())).flags).toEqual(['reply_rejected_by_guard']);
+    expect((await new DraftReplyNode(invented).execute(replyState())).replyFlags).toEqual(['reply_rejected_by_guard']);
 
     const real = fakeLlm({
       draftReply: async () =>
         answered('We cannot refund this: it was delivered 95 days ago and the window is 30 days.'),
     });
-    expect((await new DraftReplyNode(real).execute(replyState())).flags).toBeUndefined();
+    expect((await new DraftReplyNode(real).execute(replyState())).replyFlags).toEqual([]);
   });
 
   it('falls back to the template, and says so, when the model fails', async () => {
@@ -50,9 +50,17 @@ describe('DraftReplyNode', () => {
       },
     });
     const update = await new DraftReplyNode(down).execute(replyState());
-    expect(update.flags).toEqual(['reply_llm_failed']);
+    expect(update.replyFlags).toEqual(['reply_llm_failed']);
     expect(update.reply).toBeTruthy();
     expect(JSON.stringify(update.trace)).not.toMatch(/boom|anna@/);
+  });
+
+  it('never calls the model for a refusal: it is fixed text', async () => {
+    const draftReply = vi.fn(async () => answered('Something creative.'));
+    const update = await new DraftReplyNode(fakeLlm({ draftReply })).execute(replyState({ decision: 'refuse' }));
+    expect(draftReply).not.toHaveBeenCalled();
+    expect(update.reply).toMatch(/could not verify/i);
+    expect(update.trace?.[0]).toMatchObject({ ok: true, detail: expect.stringContaining('fixed text') });
   });
 
   it('never calls the model for a request that did not validate', async () => {

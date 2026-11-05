@@ -91,7 +91,7 @@ Dependencies point inward and the agent sees storage only through interfaces, so
 - Classification is a forced tool call validated by Zod, retried a bounded number of times; failure escalates rather than guesses.
 - The classifier's self-reported confidence is not used: it is uncalibrated. Instead, before a refund is approved the model must quote the words in which the customer asks for it, and code checks the quote really is in the ticket (a substring match, so it works in any language and the ticket text cannot argue with it). No verified quote, no approval. This proves the model cited real text, not that the text means what it says; the quote is in the trace for the reviewer.
 - The model cannot decide money, and its words can only make an outcome stricter. Its refund reason matters only after the 30-day return window: a defect claim up to day 60 then goes to a human instead of being approved, so adding the word "broken" to a changed-mind request buys nothing.
-- Ownership check; a wrong email and an unknown order look identical to the customer.
+- Ownership check; a wrong email and an unknown order get the same fixed refusal text, byte for byte: a refusal is never worded by the model.
 - Replies are checked (English only; every number must come from the decided facts or refund amount; no money promises unless approved; no URLs, emails, domains or foreign order ids) and fall back to a template.
 - Escalations a person can settle can pause for a human (`interrupt()`, off unless `REVIEW_TOKEN` is set): the reviewer says yes or no, never the amount, and the refund goes through the same guarded step. See [docs/operations.md](docs/operations.md).
 - A recorded delivery date in the future escalates. If the store refuses a refund the agent already approved, the whole decision, reasons and reply become a denial.
@@ -144,7 +144,11 @@ Manual: run any sample with `npm start -- --file samples/NN-....json --json`, or
 
 ## 7. Example inputs and outputs
 
-Input (`samples/13-defect-after-window-escalated.json`):
+Everything below is real output from `claude-haiku-5-5`, not the offline mock. `npm run samples` runs the same 15 tickets offline and checks each decision.
+
+### A refund the agent will not approve on its own
+
+Input (`samples/13-defect-after-window-escalated.json`): a defect claim 56 days after delivery.
 
 ```json
 {
@@ -156,7 +160,7 @@ Input (`samples/13-defect-after-window-escalated.json`):
 }
 ```
 
-Output (abridged):
+Output (abridged: the trace is shown as step names, the handoff policies as ids):
 
 ```json
 {
@@ -167,10 +171,21 @@ Output (abridged):
     "Delivered 56 days ago, past the 30-day return window. The customer reports a defect (window 60 days), which a team member must verify."
   ],
   "policyCitations": ["R2", "R1"],
-  "handoff": { "reasons": ["..."], "policies": ["R1 (cited)", "R2 (cited)"] },
+  "handoff": {
+    "reasons": [
+      "Delivered 56 days ago, past the 30-day return window. The customer reports a defect (window 60 days), which a team member must verify."
+    ],
+    "policies": ["R1 (cited)", "R2 (cited)"]
+  },
   "flags": [],
-  "reply": "Hello, thank you for contacting us. Regarding order ORD-1009 (Blender). The order was delivered 56 days ago, past the 30-day return window. Because you report a fault, we will check that before deciding. A team member will review your request and reply shortly.",
-  "summary": "Ticket T-013: ESCALATE. Delivered 56 days ago, past the 30-day return window. ...",
+  "reply": "Hello,\n\nThank you for contacting us about your blender (order ORD-1009). Our records show it was delivered 56 days ago, which is past the 30-day return window, so a standard refund is not available. Because you report that the item is defective, your request is being escalated to a team member for review. Under our defective-items policy, claims for items that arrive defective may be refunded within 60 days of delivery, and after 30 days the claim must be checked by a person.\n\nA team member will review your request and reply to you shortly.\n\nKind regards,\nCustomer Support",
+  "summary": "Ticket T-013: ESCALATE. Delivered 56 days ago, past the 30-day return window. The customer reports a defect (window 60 days), which a team member must verify.",
+  "usage": {
+    "llmCalls": 2,
+    "inputTokens": 1537,
+    "outputTokens": 320,
+    "llmMs": 3029
+  },
   "trace": [
     "validate",
     "load_policies",
@@ -186,23 +201,139 @@ Output (abridged):
 }
 ```
 
-An escalation (sample 03, a software license) adds the reviewer brief:
+The decision, the reasons and the citations come from code. Only `reply` was written by the model, and it passed the reply guard. `usage` is what the two model calls cost, in tokens.
+
+### Other replies, written by the model from decided facts
+
+**Sample 01, an in-window refund under the limit** (`approve`, refund 59.90)
+
+```text
+Hello,
+
+Thank you for contacting us about order ORD-1001 (Wireless Headphones). We have reviewed your request, and your refund of 59.90 has been approved. The order was delivered 16 days ago, which is within our 30-day return window for physical items.
+
+We appreciate your patience, and we hope you have a great day.
+
+Kind regards,
+Customer Support
+```
+
+**Sample 08, a prompt-injection attempt** (`escalate`, flag `prompt_injection_suspected`, no order lookup)
+
+```text
+Thank you for reaching out about your refund request. Your request has been escalated, and a team member will review it and reply to you shortly.
+
+I'm not able to approve refunds or change amounts directly, so the review will be handled by our team.
+
+Thank you for your patience.
+```
+
+### Refusals are fixed text
+
+Sample 07 (the email does not match the order) and sample 14 (unknown order id) get exactly the same reply, written by code, not by the model:
+
+```text
+Hello, we could not verify this request against your account, so we are unable to help with it here. Please contact support from the email used for the order.
+```
+
+### Human review, end to end
+
+With `REVIEW_TOKEN` set, an escalation a reviewer can settle pauses for a person. The customer is answered at once (`202`), and the paused run waits in the database.
+
+`POST /tickets` with sample 02 (a 149.00 refund, over the 100.00 limit):
 
 ```json
-"decision": "escalate",
-"handoff": {
-  "reasons": ["Digital goods are non-refundable; a human must check legal exceptions."],
-  "policies": [{ "id": "R3", "title": "Digital goods", "source": "cited", "text": "Digital goods and software licenses are non-refundable once delivered, ..." }]
+{
+  "ticketId": "T-002",
+  "decision": "escalate",
+  "refundAmount": 0,
+  "reasons": ["Amount 149.00 exceeds auto-approval limit 100.00."],
+  "policyCitations": ["R5"],
+  "handoff": {
+    "reasons": ["Amount 149.00 exceeds auto-approval limit 100.00."],
+    "policies": ["R5 (cited)", "R2 (suggested)"]
+  },
+  "review": {
+    "status": "pending"
+  },
+  "flags": [],
+  "reply": "Hello,\n\nThank you for contacting us about your Mechanical Keyboard (order ORD-1002), and I'm sorry to hear several keys aren't working.\n\nYour request has been escalated for manual review. Under our policy, refunds above 100.00 require human review and must be escalated, and refunds of this size need a manual review first. A team member will review your request and reply shortly.\n\nThank you for your patience.\n\nBest regards,\nCustomer Support",
+  "summary": "Ticket T-002: ESCALATE. Amount 149.00 exceeds auto-approval limit 100.00.",
+  "usage": {
+    "llmCalls": 2,
+    "inputTokens": 1477,
+    "outputTokens": 290,
+    "llmMs": 3348
+  },
+  "trace": [
+    "validate",
+    "load_policies",
+    "scan_injection",
+    "classify",
+    "search_policies",
+    "lookup_order",
+    "check_eligibility",
+    "decide",
+    "cite_policies",
+    "draft_reply"
+  ]
 }
 ```
 
-An injection attempt (sample 08) gives `escalate` with flag `prompt_injection_suspected` and no `lookup_order` step.
+`GET /reviews` lists it. A reviewer answers with `POST /reviews/T-002:f871a76fb7b15231/decision` (id URL-encoded) and `Authorization: Bearer <REVIEW_TOKEN>`:
+
+```json
+{ "action": "approve", "reviewer": "Maria", "note": "Customer phoned us about the keyboard" }
+```
+
+The agent re-reads the order, refunds the order's own amount, and writes the reply again. The reviewer's name and note are in the result for the audit trail, and not in the customer's reply:
+
+```json
+{
+  "ticketId": "T-002",
+  "decision": "approve",
+  "refundAmount": 149,
+  "reasons": ["Approved after review by Maria: Customer phoned us about the keyboard."],
+  "policyCitations": ["R5"],
+  "review": {
+    "status": "approved",
+    "reviewer": "Maria",
+    "note": "Customer phoned us about the keyboard"
+  },
+  "flags": [],
+  "reply": "Hello,\n\nThank you for contacting us about your Mechanical Keyboard (order ORD-1002). We're sorry to hear that several keys were not working when it arrived.\n\nYour refund request has been approved for 149.00. Our team reviewed your request before this was approved.\n\nIf you have any further questions, please reply to this message and we'll be glad to help.\n\nKind regards,\nCustomer Support",
+  "summary": "Ticket T-002: APPROVE (refund 149.00). Approved after review by Maria: Customer phoned us about the keyboard.",
+  "usage": {
+    "llmCalls": 3,
+    "inputTokens": 1928,
+    "outputTokens": 417,
+    "llmMs": 4706
+  },
+  "trace": [
+    "validate",
+    "load_policies",
+    "scan_injection",
+    "classify",
+    "search_policies",
+    "lookup_order",
+    "check_eligibility",
+    "decide",
+    "cite_policies",
+    "draft_reply",
+    "human_review",
+    "lookup_order",
+    "execute_refund",
+    "apply_review",
+    "draft_reply"
+  ]
+}
+```
 
 ## 8. Trade-offs, limitations, next steps
 
-- **The real-Claude path has not been run end to end.** The mock model is keyword-based, so tests prove the pipeline and guardrails, not model quality.
+- **Real Claude has been run, as a smoke test and not an evaluation.** All 15 samples with human-review flow were run on `claude-haiku-5-5`, for about a cent in total. All 15 decisions came out as expected, the model's refund-request quote matched the ticket every time it quoted, and `#1001` was normalised to `ORD-1001`.
 - It is a workflow with two model calls, not an open-ended agent: the model never chooses tools or decides money. That is deliberate, and it is why a fooled model cannot approve a refund.
-- Human review is minimal: one shared token, no reviewer accounts, no notifications and no expiry. A reviewer's "no" is replayed for the same ticket and sender; a customer who opens a new ticket for the same order gets a new review, with the earlier denials shown in its handoff so the second reviewer decides knowing. The agent does not block it: whether a new ticket is a new case is a support-process question. Paused runs are saved by a small Knex checkpointer, not LangGraph's ready-made ones (see [docs/operations.md](docs/operations.md)).
+- Human review is minimal: one shared token, no reviewer accounts, no notifications and no expiry. A reviewer's "no" is replayed for the same ticket and sender; a customer who opens a new ticket for the same order gets a new review, with the earlier denials shown in its handoff so the second reviewer decides knowing. The agent does not block it: whether a new ticket is a new case is a support-process question. Paused runs are saved by a small Knex checkpointer.
 - Rules in the database are safe and change without a deploy, but a bad row is a bad policy: it needs access control, and required rows are validated at startup.
 - Injection scoring is defence in depth and can be bypassed, which is why the model has no authority to approve. Some benign tickets may escalate: a deliberate bias toward safety.
 - Reply checks and injection scoring are English-only regexes. A draft in another language is rejected and the English template is sent; an injection in another language is not scored (the fence, the quote check and the code-made decision still apply).

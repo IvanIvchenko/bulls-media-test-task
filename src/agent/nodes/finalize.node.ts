@@ -14,12 +14,13 @@ export class FinalizeNode implements AgentNode {
 
   public async execute(state: AgentState): Promise<AgentStateUpdate> {
     const decision = state.decision ?? 'escalate';
+    const flags = [...new Set([...state.flags, ...state.replyFlags])];
     const ticketId = this.ticketIdOf(state);
     const summary =
       `Ticket ${ticketId}: ${decision.toUpperCase()}` +
       (decision === 'approve' ? ` (refund ${state.refundAmount.toFixed(2)})` : '') +
       `. ${state.reasons.join(' ')}` +
-      (state.flags.length ? ` Flags: ${state.flags.join(', ')}.` : '');
+      (flags.length ? ` Flags: ${flags.join(', ')}.` : '');
 
     const result = resultSchema.parse({
       ticketId,
@@ -29,7 +30,7 @@ export class FinalizeNode implements AgentNode {
       reasons: state.reasons,
       policyCitations: [...new Set(state.citations)],
       handoff: decision === 'escalate' ? this.buildHandoff(state) : null,
-      flags: [...new Set(state.flags)],
+      flags,
       reply: state.reply,
       summary,
       trace: state.trace,

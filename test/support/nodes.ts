@@ -62,6 +62,7 @@ export const blank = (): AgentState => ({
   policyNotes: [],
   reply: '',
   flags: [],
+  replyFlags: [],
   trace: [],
   result: undefined,
   review: undefined,
