@@ -15,7 +15,7 @@ npm start -- --file samples/13-defect-after-window-escalated.json   # one ticket
 npm run check                                              # typecheck, lint, format, all tests
 ```
 
-**Reading it in 20 minutes:** the workflow is `src/agent/agent.graph.ts` with one class per step in `src/agent/nodes/`. The rules that decide money are `src/domain/eligibility.ts` and `src/domain/decision.ts`. The guardrails are in `src/guardrails/`, the prompts in `src/llm/llm.prompts.ts`. Everything else (HTTP service, claims, migrations, Docker) is operations: see [docs/operations.md](docs/operations.md).
+**Reading it in 20 minutes:** the workflow is `src/agent/agent.graph.ts` with one class per step in `src/agent/nodes/`. The rules that decide money are `src/domain/eligibility.ts` and `src/domain/decision.ts`. The guardrails are in `src/guardrails/`, the prompts in `src/llm/llm.prompts.ts`. Everything else (HTTP service, review queue, migrations, Docker) is operations: see [docs/operations.md](docs/operations.md).
 
 ## 1. Problem statement
 
@@ -132,19 +132,25 @@ npm run samples                                                # all 15
 
 ```bash
 npm run check            # typecheck + eslint + prettier + all tests
-npm run samples          # 15 sample tickets against their expected decisions
-npm run test:live        # optional, needs ANTHROPIC_API_KEY: real-model tests
+npm run samples          # 15 sample tickets against their expected decisions (offline, on the mock model)
+npm run test:live        # optional, needs ANTHROPIC_API_KEY: two real-model tests
+```
+
+To run the same 15 samples on real Claude (about a cent), give the CLI a key, in the environment or in `.env`. It uses the real model whenever a key is set, and prints the same PASS/FAIL lines:
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-... npm run samples
 ```
 
 - **Unit specs** beside the code: eligibility boundaries, decision policy, each graph node against fake ports, the Claude client against a fake SDK client, prompts (and that the tool schema matches the validation schema), guardrails, reply templates (the fallback must pass the reply guard), retry rules, config.
-- **E2E specs** (`test/e2e`): every sample through the graph and over HTTP, failure modes (hostile or failing model, conflicting ids, no order enumeration), database-driven behaviour, handoff, privacy, the CLI.
+- **E2E specs** (`test/e2e`): every sample through the graph and over HTTP, failure modes (hostile or failing model, no order enumeration), database-driven behaviour, handoff, privacy, the CLI.
 - **Architecture spec**: layer rules, package allowlist per layer, naming and error conventions.
 
 Manual: run any sample with `npm start -- --file samples/NN-....json --json`, or write your own ticket (`ticketId`, `customerEmail`, `orderId`, `subject`, `body`) and pass it to `--file`. Demo customers are in `data/seed/orders.json`.
 
 ## 7. Example inputs and outputs
 
-Everything below is real output from `claude-haiku-5-5`, not the offline mock. `npm run samples` runs the same 15 tickets offline and checks each decision.
+Everything below is real output from `claude-haiku-5-5` (one run each, on the final code), not the offline mock. `npm run samples` runs the same 15 tickets offline and checks each decision; with a key set it runs them on real Claude (see section 6).
 
 ### A refund the agent will not approve on its own
 
@@ -178,13 +184,13 @@ Output (abridged: the trace is shown as step names, the handoff policies as ids)
     "policies": ["R1 (cited)", "R2 (cited)"]
   },
   "flags": [],
-  "reply": "Hello,\n\nThank you for contacting us about your blender (order ORD-1009). Our records show it was delivered 56 days ago, which is past the 30-day return window, so a standard refund is not available. Because you report that the item is defective, your request is being escalated to a team member for review. Under our defective-items policy, claims for items that arrive defective may be refunded within 60 days of delivery, and after 30 days the claim must be checked by a person.\n\nA team member will review your request and reply to you shortly.\n\nKind regards,\nCustomer Support",
+  "reply": "Hello,\n\nThank you for contacting us about your blender (order ORD-1009). Your order was delivered 56 days ago, which is past our 30-day return window. Because you report a fault, a team member will check the defect claim before a decision is made. Under our policy, defective items may be considered within 60 days of delivery, and claims after 30 days are checked by a team member.\n\nA team member will review your request and reply shortly.\n\nKind regards,\nCustomer Support",
   "summary": "Ticket T-013: ESCALATE. Delivered 56 days ago, past the 30-day return window. The customer reports a defect (window 60 days), which a team member must verify.",
   "usage": {
     "llmCalls": 2,
-    "inputTokens": 1537,
-    "outputTokens": 320,
-    "llmMs": 3029
+    "inputTokens": 1536,
+    "outputTokens": 293,
+    "llmMs": 2840
   },
   "trace": [
     "validate",
@@ -210,9 +216,11 @@ The decision, the reasons and the citations come from code. Only `reply` was wri
 ```text
 Hello,
 
-Thank you for contacting us about order ORD-1001 (Wireless Headphones). We have reviewed your request, and your refund of 59.90 has been approved. The order was delivered 16 days ago, which is within our 30-day return window for physical items.
+Thank you for reaching out about your order ORD-1001 for the Wireless Headphones. Your order was delivered 16 days ago, which is within our 30-day return window, so your refund has been approved for 59.90.
 
-We appreciate your patience, and we hope you have a great day.
+Under our return policy, physical items may be refunded within 30 days of delivery, and your request falls within that period.
+
+If you have any other questions, please let us know.
 
 Kind regards,
 Customer Support
@@ -221,11 +229,9 @@ Customer Support
 **Sample 08, a prompt-injection attempt** (`escalate`, flag `prompt_injection_suspected`, no order lookup)
 
 ```text
-Thank you for reaching out about your refund request. Your request has been escalated, and a team member will review it and reply to you shortly.
+Thank you for reaching out about your refund request. Your request has been passed to a team member, who will review it and reply to you shortly.
 
-I'm not able to approve refunds or change amounts directly, so the review will be handled by our team.
-
-Thank you for your patience.
+I'm not able to change or approve anything directly from this message, so please expect a follow-up from our team once the review is complete.
 ```
 
 ### Refusals are fixed text
@@ -257,13 +263,13 @@ With `REVIEW_TOKEN` set, an escalation a reviewer can settle pauses for a person
     "status": "pending"
   },
   "flags": [],
-  "reply": "Hello,\n\nThank you for contacting us about your Mechanical Keyboard (order ORD-1002), and I'm sorry to hear several keys aren't working.\n\nYour request has been escalated for manual review. Under our policy, refunds above 100.00 require human review and must be escalated, and refunds of this size need a manual review first. A team member will review your request and reply shortly.\n\nThank you for your patience.\n\nBest regards,\nCustomer Support",
+  "reply": "Hello,\n\nThank you for contacting us about order ORD-1002 (Mechanical Keyboard) and for letting us know several keys aren't working.\n\nYour request has been escalated. Refunds of this size need a manual review first, and under our policy, refunds above 100.00 are reviewed by a team member before they are approved. A team member will review your request and reply to you shortly.\n\nThank you for your patience.\n\nKind regards,\nCustomer Support",
   "summary": "Ticket T-002: ESCALATE. Amount 149.00 exceeds auto-approval limit 100.00.",
   "usage": {
     "llmCalls": 2,
-    "inputTokens": 1477,
+    "inputTokens": 1482,
     "outputTokens": 290,
-    "llmMs": 3348
+    "llmMs": 2661
   },
   "trace": [
     "validate",
@@ -301,13 +307,13 @@ The agent re-reads the order, refunds the order's own amount, and writes the rep
     "note": "Customer phoned us about the keyboard"
   },
   "flags": [],
-  "reply": "Hello,\n\nThank you for contacting us about your Mechanical Keyboard (order ORD-1002). We're sorry to hear that several keys were not working when it arrived.\n\nYour refund request has been approved for 149.00. Our team reviewed your request before this was approved.\n\nIf you have any further questions, please reply to this message and we'll be glad to help.\n\nKind regards,\nCustomer Support",
+  "reply": "Hello,\n\nThank you for contacting us about your Mechanical Keyboard on order ORD-1002. We're sorry to hear several keys are not working.\n\nYour refund request has been approved for 149.00. Our team reviewed your request before this approval was given.\n\nIf you have any questions, please reply to this message and we will be happy to help.\n\nKind regards,\nCustomer Support",
   "summary": "Ticket T-002: APPROVE (refund 149.00). Approved after review by Maria: Customer phoned us about the keyboard.",
   "usage": {
     "llmCalls": 3,
-    "inputTokens": 1928,
-    "outputTokens": 417,
-    "llmMs": 4706
+    "inputTokens": 1933,
+    "outputTokens": 410,
+    "llmMs": 3924
   },
   "trace": [
     "validate",
@@ -331,7 +337,18 @@ The agent re-reads the order, refunds the order's own amount, and writes the rep
 
 ## 8. Trade-offs, limitations, next steps
 
-- **Real Claude has been run, as a smoke test and not an evaluation.** All 15 samples with human-review flow were run on `claude-haiku-5-5`, for about a cent in total. All 15 decisions came out as expected, the model's refund-request quote matched the ticket every time it quoted, and `#1001` was normalised to `ORD-1001`.
+### What the real runs changed
+
+All 15 samples, the human-review flow and the two live tests were run on `claude-haiku-5-5`, for about a cent in total. All 15 decisions came out as expected, the model's refund-request quote matched the ticket every time it quoted, and `#1001` was normalised to `ORD-1001`. It is a smoke test, not an evaluation: one run per ticket says nothing about consistency, and there is no standing eval set. The runs did change the code, in ways the offline mock could never have shown:
+
+- **Refusals are fixed text.** For a wrong sender and an unknown order the model worded the same facts differently (one even suggested replying with "the email address"). Those two replies are meant to be indistinguishable, so a refusal is now template text, byte for byte, and costs no model call.
+- **The refund amount is sent to the model only for an approval.** It was always given `REFUND_AMOUNT: 0.00`, and on an escalation the model wrote "our refund amount is currently 0.00".
+- **The reply guard rejected good drafts for three different phrasings:** my own wording ("before any money is returned"), a harmless condition ("before any refund is approved") and the noun "payment method". I read the rejected drafts (`LOG_LEVEL=debug` logs them) and fixed the guard and the wording. A new spec passes every customer-facing fact and every rule's text through the guard, and the two real drafts are regression tests. I also added a prompt rule that only an approval may promise a refund; its effect is unmeasured, since the rejections I could inspect turned out to be the guard's fault.
+- **Rule text written for the agent reached customers.** The reply writer is shown the cited rules and quoted "must be escalated" and "the claim must be checked by a person". The rules are now plain company policy (migration 004 rewrites stored text that is still as shipped, and a spec forbids "escalate", "refuse" and the like in rule text).
+- **A flag from the first reply stayed on the final result** after a reviewer's answer made the reply be written again. Reply flags now belong to the latest draft.
+
+### Limits
+
 - It is a workflow with two model calls, not an open-ended agent: the model never chooses tools or decides money. That is deliberate, and it is why a fooled model cannot approve a refund.
 - Human review is minimal: one shared token, no reviewer accounts, no notifications and no expiry. A reviewer's "no" is replayed for the same ticket and sender; a customer who opens a new ticket for the same order gets a new review, with the earlier denials shown in its handoff so the second reviewer decides knowing. The agent does not block it: whether a new ticket is a new case is a support-process question. Paused runs are saved by a small Knex checkpointer.
 - Rules in the database are safe and change without a deploy, but a bad row is a bad policy: it needs access control, and required rows are validated at startup.

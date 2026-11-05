@@ -4,18 +4,27 @@ const MAX_REPLY_CHARS = 1500;
 const NUMBER = /\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?/g;
 const AMOUNT_TOLERANCE = 0.005;
 
+/** "before any refund is approved" states a condition, it promises nothing. Only the lead-in right before the noun counts. */
+const NOT_CONDITIONAL = String.raw`(?<!\b(?:before|until|unless|if|whether|once|when)\s+(?:(?:any|a|the|your)\s+)?)`;
+
 /**
  * Ways a reply can promise money. Only checked when the decision is NOT an approval. A heuristic: a clever
  * paraphrase can slip past it, which is why the number rule below also applies, and why the decision itself
- * never comes from the model.
+ * never comes from the model. It errs towards rejecting (a rejected draft costs a template), but real replies showed
+ * two harmless phrasings it must not trip on: a condition ("before any refund is approved") and the noun "payment
+ * method" ("the payment method it was returned to").
  */
 const MONEY_PROMISES: readonly RegExp[] = [
   /\b(?:will|'ll|going to|shall|gonna)\s+(?:(?:\w+ly|now|also|then|soon)\s+)?(?:refund|reimburse|credit|pay)\b/i,
   /\b(?:will|'ll)\s+be\s+(?:\w+ly\s+)?(?:refunded|reimbursed|credited|paid)\b/i,
-  /\b(?:refund|reimbursement|credit)\b[^.!?\n]{0,30}\b(?:is|has been|was|have been|will be)\b[^.!?\n]{0,15}\b(?:approved|issued|processed|granted|completed|sent|on (?:its|the) way|coming)\b/i,
+  new RegExp(
+    NOT_CONDITIONAL +
+      String.raw`\b(?:refund|reimbursement|credit)\b[^.!?\n]{0,30}\b(?:is|has been|was|have been|will be)\b[^.!?\n]{0,15}\b(?:approved|issued|processed|granted|completed|sent|on (?:its|the) way|coming)\b`,
+    'i',
+  ),
   /\bwe(?:'ve| have)\s+(?:approved|refunded|reimbursed|credited|processed)\b/i,
   /\byou(?:'ll| will)\s+(?:receive|get)\b[^.!?\n]{0,30}\b(?:refund|money|payment|credit)\b/i,
-  /\b(?:money|funds|payment)\b[^.!?\n]{0,30}\b(?:on (?:its|the) way|back to you|returned|refunded)\b/i,
+  /\b(?:money|funds|payment(?!\s+(?:method|details|card|account)))\b[^.!?\n]{0,30}\b(?:on (?:its|the) way|back to you|returned|refunded)\b/i,
 ];
 
 /** Frequent English words. The promise patterns below are English, so a reply in another language is not checked by them. */

@@ -140,6 +140,7 @@ describe('migrations', () => {
       '001-initial-schema',
       '002-defect-claims-need-review',
       '003-pending-reviews',
+      '004-quotable-policy-text',
     ]);
     await db.destroy();
   });
@@ -166,6 +167,54 @@ describe('migrations', () => {
       expect(await rerun(db)).toBe('Our own wording.');
       await db.destroy();
     });
+  });
+});
+
+describe('004: quotable policy text', () => {
+  /** How each reworded rule read before, as shipped. */
+  const SHIPPED: Record<string, string> = {
+    R2: 'Items that arrive defective or not as described may be refunded within {{defect_window_days}} days of delivery. After {{return_window_days}} days the claim cannot be checked automatically: escalate it to a human.',
+    R3: 'Digital goods and software licenses are non-refundable once delivered, except where required by law (escalate to a human).',
+    R5: 'Refunds up to {{auto_approve_limit}} may be approved automatically. Refunds above {{auto_approve_limit}} require human review and must be escalated.',
+    R7: 'A refund may only be processed when the ticket email matches the email on the order. Otherwise refuse and do not disclose order details.',
+    S3: 'Requests unrelated to refunds or order status (account changes, product advice, complaints about staff, legal threats) are out of scope and must be routed to a human agent.',
+  };
+  const textOf = async (db: Awaited<ReturnType<typeof openTestDatabase>>, id: string) =>
+    (await db('policy_rules').where({ id }).first('text'))!.text as string;
+  const rerun = async (db: Awaited<ReturnType<typeof openTestDatabase>>) => {
+    await db('schema_migrations').where({ name: '004-quotable-policy-text' }).del();
+    await db.transaction((trx) => migrate(trx));
+  };
+
+  it('rewrites every rule that still reads as it was shipped, so an older database says what a new one does', async () => {
+    const db = await openTestDatabase();
+    const current = Object.fromEntries(
+      await Promise.all(Object.keys(SHIPPED).map(async (id) => [id, await textOf(db, id)])),
+    );
+    for (const [id, text] of Object.entries(SHIPPED)) await db('policy_rules').where({ id }).update({ text });
+
+    await rerun(db);
+    for (const id of Object.keys(SHIPPED)) expect(await textOf(db, id), id).toBe(current[id]);
+    await db.destroy();
+  });
+
+  it('also reaches the text that migration 002 left on R2', async () => {
+    const db = await openTestDatabase();
+    const current = await textOf(db, 'R2');
+    await db('policy_rules').where({ id: 'R2' }).update({
+      text: 'Items that arrive defective or not as described may be refunded within {{defect_window_days}} days of delivery. After {{return_window_days}} days the claim cannot be checked automatically: escalate it to a human.',
+    });
+    await rerun(db);
+    expect(await textOf(db, 'R2')).toBe(current);
+    await db.destroy();
+  });
+
+  it('leaves a rule alone that someone has already reworded', async () => {
+    const db = await openTestDatabase();
+    await db('policy_rules').where({ id: 'R5' }).update({ text: 'Our own wording of the approval limit.' });
+    await rerun(db);
+    expect(await textOf(db, 'R5')).toBe('Our own wording of the approval limit.');
+    await db.destroy();
   });
 });
 

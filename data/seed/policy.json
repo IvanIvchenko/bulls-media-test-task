@@ -8,18 +8,18 @@
     {
       "id": "R2",
       "title": "Defective items",
-      "text": "Items that arrive defective or not as described may be refunded within {{defect_window_days}} days of delivery. After {{return_window_days}} days the claim cannot be checked automatically: escalate it to a human."
+      "text": "Items that arrive defective or not as described may be refunded within {{defect_window_days}} days of delivery. After {{return_window_days}} days, a defect claim is checked by a team member before a decision is made."
     },
     {
       "id": "R3",
       "title": "Digital goods",
-      "text": "Digital goods and software licenses are non-refundable once delivered, except where required by law (escalate to a human)."
+      "text": "Digital goods and software licenses are non-refundable once delivered, except where required by law. Such requests are reviewed by a team member."
     },
     { "id": "R4", "title": "Final sale", "text": "Items marked final sale cannot be refunded or returned." },
     {
       "id": "R5",
       "title": "Automatic approval limit",
-      "text": "Refunds up to {{auto_approve_limit}} may be approved automatically. Refunds above {{auto_approve_limit}} require human review and must be escalated."
+      "text": "Refunds up to {{auto_approve_limit}} may be approved automatically. Refunds above {{auto_approve_limit}} are reviewed by a team member before they are approved."
     },
     {
       "id": "R6",
@@ -29,7 +29,7 @@
     {
       "id": "R7",
       "title": "Identity verification",
-      "text": "A refund may only be processed when the ticket email matches the email on the order. Otherwise refuse and do not disclose order details."
+      "text": "A refund can only be processed when the email on the ticket matches the email on the order. Order details are not shared with anyone else."
     },
     {
       "id": "S1",
@@ -44,7 +44,7 @@
     {
       "id": "S3",
       "title": "Out of scope",
-      "text": "Requests unrelated to refunds or order status (account changes, product advice, complaints about staff, legal threats) are out of scope and must be routed to a human agent."
+      "text": "Requests unrelated to refunds or order status (account changes, product advice, complaints about staff, legal threats) are outside what this service handles. They are passed to a team member."
     }
   ],
   "settings": [

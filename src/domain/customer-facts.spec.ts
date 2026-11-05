@@ -116,4 +116,27 @@ describe('what the customer is told', () => {
       checkReply(reply, { decision: 'approve', orderIds: ['ORD-1'], refundAmount: 40, allowedText: outcome.facts }),
     ).toEqual([]);
   });
+
+  it('is also true of every policy rule, which a reply may quote when a decision cites it', async () => {
+    const { rules } = await (await createTestContainer()).policies.loadSnapshot();
+    for (const rule of rules) {
+      const note = `${rule.id} ${rule.title}: ${rule.text}`;
+      for (const decision of ['deny', 'escalate'] as const) {
+        const reply = templateReply({
+          ticket: { ...ticket, customerEmail: 'a@b.com' },
+          decision,
+          facts: ['Regarding order ORD-1 (Desk Lamp).'],
+          policyNotes: [note],
+          refundAmount: 0,
+        });
+        const problems = checkReply(reply, {
+          decision,
+          orderIds: ['ORD-1'],
+          refundAmount: 0,
+          allowedText: ['Regarding order ORD-1 (Desk Lamp).', note],
+        });
+        expect(problems, `${rule.id} in a ${decision}: ${reply}`).toEqual([]);
+      }
+    }
+  });
 });

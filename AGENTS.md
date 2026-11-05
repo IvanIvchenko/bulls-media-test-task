@@ -29,6 +29,7 @@ Mostly enforced by `test/architecture.spec.ts`, eslint and prettier.
 - Tests that need delays use a seeded generator, never `Math.random`/wall-clock thresholds. The service runs as one instance: do not add code (or tests) that assumes two processes share a file.
 - Decisions carry two lists: `reasons` are for the reviewer (third person, internal limits allowed), `facts` are written to the customer and are all the reply model or template sees. Never copy one into the other.
 - Human review: the agent pauses with `interrupt()` only when `run` is given a `reviewId` (the HTTP service with `REVIEW_TOKEN`). The reviewer's answer is yes or no; code sets the amount. A paused run is saved by `KnexCheckpointSaver` (db/), only for the review graph, and deleted once answered; never keep a run in memory.
+- Rule text (`data/seed/policy.json`, `policy_rules`) is quoted to customers: write it as company policy, never as an instruction to the agent ("escalate", "refuse"). A spec checks it; a changed rule needs a migration that rewrites stored text only if it is still as shipped.
 - Prettier: single quotes, trailing commas, width 120. Imports are ordered by eslint (`import-x/order`).
 - Unit specs sit beside the code (`*.spec.ts`), e2e specs in `test/e2e/*.e2e-spec.ts`. Tests run offline on the mock model and in-memory SQLite.
 
