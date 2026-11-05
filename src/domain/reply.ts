@@ -26,10 +26,10 @@ export function templateReply(ctx: ReplyContext): string {
     case 'deny':
       return `${hi} unfortunately we cannot refund this order. ${facts}${policy} If you believe this is a mistake, reply and a team member will take another look.`;
     case 'escalate':
-      return `${hi} thank you for contacting us. Your request needs a review by a team member, who will get back to you shortly. ${facts}`;
+      return `${hi} thank you for contacting us. ${facts}`;
     case 'refuse':
       return `${hi} we could not verify this request against your account, so we are unable to help with it here. Please contact support from the email used for the order.`;
     case 'info':
-      return `${hi} ${facts}`;
+      return `${hi} thank you for getting in touch. ${facts}`;
   }
 }

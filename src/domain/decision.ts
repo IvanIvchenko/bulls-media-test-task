@@ -45,7 +45,8 @@ const buildOutcome = (
   refundAmount,
 });
 
-const HUMAN_REVIEW_FACTS = ['A team member will review your request.'];
+/** Facts are written to the customer; reasons are for the reviewer. They are never the same list. */
+const HUMAN_REVIEW_FACTS = ['A team member will review your request and reply shortly.'];
 
 /**
  * The decision policy as a PURE function of state: no I/O, no LLM. Order of checks matters:
@@ -84,7 +85,13 @@ export function decideOutcome(state: DecisionInput): Outcome {
     );
   if (lookup === 'not_found' || lookup === 'email_mismatch') {
     // Same outward behaviour for both cases: do not reveal whether the order exists.
-    return buildOutcome('refuse', [`Order could not be verified (${lookup}).`], [], [RULE.IDENTITY]);
+    return buildOutcome(
+      'refuse',
+      [`Order could not be verified (${lookup}).`],
+      // The same words whichever way verification failed, so the reply cannot tell the customer which it was.
+      ['We could not verify this request against the account on the order.'],
+      [RULE.IDENTITY],
+    );
   }
   if (!order) return buildOutcome('escalate', ['Order data missing.'], HUMAN_REVIEW_FACTS);
 
@@ -93,13 +100,13 @@ export function decideOutcome(state: DecisionInput): Outcome {
     return buildOutcome(
       'info',
       ['Order status provided.'],
-      [`Order ${order.orderId} (${order.item}) is currently: ${order.status}.${note}`],
+      [`Order ${order.orderId} (${order.item}) is currently ${order.status}.${note}`],
       [RULE.ORDER_STATUS],
     );
   }
 
   if (!eligibility) return buildOutcome('escalate', ['Eligibility not evaluated.'], HUMAN_REVIEW_FACTS);
-  const facts = [`Order ${order.orderId} (${order.item}).`, ...eligibility.reasons];
+  const facts = [`Regarding order ${order.orderId} (${order.item}).`, ...eligibility.facts];
   if (
     eligibility.verdict === 'approve' &&
     !(ticket && refundQuoteIsInTicket(ticket, classification.refundRequestQuote))
@@ -110,18 +117,17 @@ export function decideOutcome(state: DecisionInput): Outcome {
       [
         'The message was read as a refund request, but the quoted request is not in the ticket, so a person must check.',
       ],
-      [...facts, 'A team member will review it and reply shortly.'],
+      [
+        `Regarding order ${order.orderId} (${order.item}).`,
+        'We could not confirm from your message that you are asking for a refund.',
+        ...HUMAN_REVIEW_FACTS,
+      ],
     );
   }
   if (eligibility.verdict === 'approve')
     return buildOutcome('approve', eligibility.reasons, facts, eligibility.citations, order.amount);
   if (eligibility.verdict === 'deny') return buildOutcome('deny', eligibility.reasons, facts, eligibility.citations);
-  return buildOutcome(
-    'escalate',
-    eligibility.reasons,
-    [...facts, 'A team member will review it and reply shortly.'],
-    eligibility.citations,
-  );
+  return buildOutcome('escalate', eligibility.reasons, [...facts, ...HUMAN_REVIEW_FACTS], eligibility.citations);
 }
 
 /**
@@ -130,7 +136,7 @@ export function decideOutcome(state: DecisionInput): Outcome {
  * "already refunded" rule; anything else needs a human.
  */
 export function refundFailureOutcome(reason: 'not_found' | 'already_refunded', order: Order): Outcome {
-  const orderFact = `Order ${order.orderId} (${order.item}).`;
+  const orderFact = `Regarding order ${order.orderId} (${order.item}).`;
   if (reason === 'already_refunded') {
     return buildOutcome(
       'deny',

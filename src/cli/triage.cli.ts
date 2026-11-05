@@ -77,6 +77,7 @@ if (values.samples) {
 } else if (values.file) {
   const parsed = JSON.parse(readFileSync(values.file, 'utf8'));
   print(await run(parsed?.input ?? parsed)); // accepts a sample file or a bare ticket
+  await sharedContainer?.close(); // otherwise the connection pool keeps the process alive
 } else {
   console.error(
     'Usage: npm start -- --file samples/01-refund-approved.json [--json] [--db data/store.db]\n       npm run samples',

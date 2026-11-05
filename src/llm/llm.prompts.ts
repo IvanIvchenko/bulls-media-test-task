@@ -50,7 +50,7 @@ const fencedTicket = (ticket: Pick<Ticket, 'subject' | 'body'>) =>
 export const buildClassifyMessage = (ticket: Ticket): string => fencedTicket(ticket);
 
 export function buildReplyMessage(ctx: ReplyContext): string {
-  const facts = ctx.facts.map((fact) => `- ${fact}`).join('\n');
+  const facts = ctx.facts.length ? ctx.facts.map((fact) => `- ${fact}`).join('\n') : '- (none)';
   const notes = ctx.policyNotes.length ? ctx.policyNotes.map((note) => `- ${note}`).join('\n') : '- (none)';
   return (
     `DECISION: ${ctx.decision}\nREFUND_AMOUNT: ${ctx.refundAmount.toFixed(2)}\n` +

@@ -27,6 +27,7 @@ Mostly enforced by `test/architecture.spec.ts`, eslint and prettier.
 - Nodes read earlier state through `needs(state, ...fields)`, which throws `AGENT_STATE_INVARIANT` if run out of order; never use `!`. Idempotency is keyed by ticket id + sender email (`claimIdentity`).
 - Claim ages come from the database clock (`now()`), never an instance's; tests age a claim with `backdateClaim`. Money goes through `roundMoney`.
 - Tests that need delays use a seeded generator, never `Math.random`/wall-clock thresholds. Multi-instance behaviour is tested with OS processes: two SQLite connections in one process deadlock.
+- Decisions carry two lists: `reasons` are for the reviewer (third person, internal limits allowed), `facts` are written to the customer and are all the reply model or template sees. Never copy one into the other.
 - Prettier: single quotes, trailing commas, width 120. Imports are ordered by eslint (`import-x/order`).
 - Unit specs sit beside the code (`*.spec.ts`), e2e specs in `test/e2e/*.e2e-spec.ts`. Tests run offline on the mock model and in-memory SQLite.
 

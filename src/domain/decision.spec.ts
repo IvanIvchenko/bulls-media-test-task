@@ -27,7 +27,7 @@ const base = {
   classification: cls(),
   lookup: 'found' as const,
   order,
-  eligibility: { verdict: 'approve' as const, reasons: ['ok'], citations: ['R1'] },
+  eligibility: { verdict: 'approve' as const, reasons: ['ok'], facts: ['fine'], citations: ['R1'] },
 };
 
 describe('decideOutcome (pure policy)', () => {
@@ -53,10 +53,34 @@ describe('decideOutcome (pure policy)', () => {
     }
     expect(decideOutcome({ ...base, ticket: undefined }).decision).toBe('escalate'); // fails closed
   });
+  it('tells the customer the same thing whichever way verification failed', () => {
+    const facts = (lookup: 'not_found' | 'email_mismatch') =>
+      decideOutcome({ ...base, lookup, order: undefined }).facts;
+    expect(facts('not_found')).toEqual(facts('email_mismatch'));
+  });
+  it('keeps what the reviewer reads out of what the customer is told', () => {
+    for (const verdict of ['approve', 'deny', 'escalate'] as const) {
+      const outcome = decideOutcome({
+        ...base,
+        eligibility: { verdict, reasons: ['INTERNAL REASON'], facts: ['for the customer'], citations: ['R1'] },
+      });
+      expect(outcome.reasons, verdict).toEqual(['INTERNAL REASON']);
+      expect(outcome.facts.join(' '), verdict).toContain('for the customer');
+      expect(outcome.facts.join(' '), verdict).not.toContain('INTERNAL');
+    }
+  });
+  it('says a team member will review it exactly once for an escalation', () => {
+    const outcome = decideOutcome({
+      ...base,
+      eligibility: { verdict: 'escalate', reasons: ['big'], facts: ['large'], citations: ['R5'] },
+    });
+    expect(outcome.facts.filter((fact) => /team member/.test(fact))).toHaveLength(1);
+  });
   it('refuses unverifiable orders with no refund amount and no details', () => {
     for (const lookup of ['not_found', 'email_mismatch'] as const) {
       const o = decideOutcome({ ...base, lookup, order: undefined });
-      expect(o).toMatchObject({ decision: 'refuse', refundAmount: 0, facts: [] });
+      expect(o).toMatchObject({ decision: 'refuse', refundAmount: 0 });
+      expect(o.facts.join(' ')).not.toMatch(/ORD-|Lamp|email_mismatch|not_found/); // nothing about the order
     }
   });
   it('fails closed when expected data is missing', () => {
@@ -65,10 +89,16 @@ describe('decideOutcome (pure policy)', () => {
   });
   it('maps deny and escalate verdicts through with citations', () => {
     expect(
-      decideOutcome({ ...base, eligibility: { verdict: 'deny', reasons: ['no'], citations: ['R4'] } }),
+      decideOutcome({
+        ...base,
+        eligibility: { verdict: 'deny', reasons: ['no'], facts: ['sorry'], citations: ['R4'] },
+      }),
     ).toMatchObject({ decision: 'deny', citations: ['R4'], refundAmount: 0 });
     expect(
-      decideOutcome({ ...base, eligibility: { verdict: 'escalate', reasons: ['big'], citations: ['R5'] } }).decision,
+      decideOutcome({
+        ...base,
+        eligibility: { verdict: 'escalate', reasons: ['big'], facts: ['large'], citations: ['R5'] },
+      }).decision,
     ).toBe('escalate');
   });
 });

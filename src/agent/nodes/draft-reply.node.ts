@@ -20,7 +20,7 @@ export class DraftReplyNode implements AgentNode {
     const context: ReplyContext = {
       ticket: state.ticket ?? NO_TICKET,
       decision,
-      facts: state.facts.length ? state.facts : state.reasons,
+      facts: state.facts, // never the internal reasons: they are written for the reviewer
       policyNotes: state.policyNotes,
       refundAmount: state.refundAmount,
     };

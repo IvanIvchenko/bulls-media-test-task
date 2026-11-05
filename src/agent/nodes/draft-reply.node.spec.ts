@@ -64,9 +64,9 @@ describe('DraftReplyNode', () => {
     expect(update.reply).toMatch(/could not verify/i);
   });
 
-  it('falls back to the reasons when there are no facts', async () => {
+  it('never shows the model the internal reasons, even when there are no facts', async () => {
     const draftReply = vi.fn(async () => answered('Hello.'));
     await new DraftReplyNode(fakeLlm({ draftReply })).execute(replyState({ facts: [] }));
-    expect(draftReply).toHaveBeenCalledWith(expect.objectContaining({ facts: ['Outside the window.'] }));
+    expect(draftReply).toHaveBeenCalledWith(expect.objectContaining({ facts: [] }));
   });
 });

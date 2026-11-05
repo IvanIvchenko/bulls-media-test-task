@@ -15,7 +15,13 @@ describe('templateReply', () => {
   it('states the outcome for each decision', () => {
     expect(templateReply({ ...base, decision: 'approve' })).toMatch(/refund of 59\.90 has been approved/);
     expect(templateReply({ ...base, decision: 'deny' })).toMatch(/cannot refund/);
-    expect(templateReply({ ...base, decision: 'escalate' })).toMatch(/review by a team member/);
+    expect(
+      templateReply({
+        ...base,
+        facts: [...base.facts, 'A team member will review your request and reply shortly.'],
+        decision: 'escalate',
+      }),
+    ).toMatch(/team member will review/);
     expect(templateReply({ ...base, decision: 'refuse' })).toMatch(/could not verify/);
     expect(templateReply({ ...base, decision: 'info' })).toContain('Order ORD-1001');
   });

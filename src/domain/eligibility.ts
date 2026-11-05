@@ -4,7 +4,10 @@ import type { Classification } from './ticket.js';
 
 export interface Eligibility {
   verdict: 'approve' | 'deny' | 'escalate';
+  /** For the reviewer, the summary and the audit trail. Written about the customer in the third person. */
   reasons: string[];
+  /** What the customer may be told, written to them. Never internal limits or what a reviewer should do. */
+  facts: string[];
   citations: string[];
 }
 
@@ -28,16 +31,31 @@ export function checkRefundEligibility(
   policy: PolicyConfig,
 ): Eligibility {
   if (order.refunded) {
-    return { verdict: 'deny', reasons: ['Order was already refunded.'], citations: [RULE.ALREADY_REFUNDED] };
+    return {
+      verdict: 'deny',
+      reasons: ['Order was already refunded.'],
+      facts: ['This order has already been refunded.'],
+      citations: [RULE.ALREADY_REFUNDED],
+    };
   }
   const categoryRule = policy.categoryRules[order.category];
   if (categoryRule) {
-    return { verdict: categoryRule.verdict, reasons: [categoryRule.reason], citations: [categoryRule.ruleId] };
+    return {
+      verdict: categoryRule.verdict,
+      reasons: [categoryRule.reason],
+      facts: [
+        categoryRule.verdict === 'deny'
+          ? categoryRule.reason
+          : 'This type of item needs a manual review before any refund.',
+      ],
+      citations: [categoryRule.ruleId],
+    };
   }
   if (order.status !== 'delivered' || !order.deliveredAt) {
     return {
       verdict: 'deny',
       reasons: [`Order is not delivered yet (status: ${order.status}).`],
+      facts: [`The order has not been delivered yet (status: ${order.status}).`],
       citations: [policy.returnWindow.ruleId],
     };
   }
@@ -48,6 +66,7 @@ export function checkRefundEligibility(
     return {
       verdict: 'escalate',
       reasons: ['The recorded delivery date is in the future, so the order data needs a human check.'],
+      facts: ['We need to check the delivery record for this order.'],
       citations: [],
     };
   }
@@ -60,6 +79,9 @@ export function checkRefundEligibility(
         reasons: [
           `Delivered ${age} days ago; the ${claimsDefect ? 'defect' : 'return'} window is ${window.days} days.`,
         ],
+        facts: [
+          `The order was delivered ${age} days ago and the ${claimsDefect ? 'defect' : 'return'} window is ${window.days} days.`,
+        ],
         citations: [window.ruleId],
       };
     }
@@ -70,6 +92,10 @@ export function checkRefundEligibility(
         `Delivered ${age} days ago, past the ${policy.returnWindow.days}-day return window. The customer reports a defect ` +
           `(window ${policy.defectWindow.days} days), which a team member must verify.`,
       ],
+      facts: [
+        `The order was delivered ${age} days ago, past the ${policy.returnWindow.days}-day return window. ` +
+          'Because you report a fault, we will check that before deciding.',
+      ],
       citations: [policy.defectWindow.ruleId, policy.returnWindow.ruleId],
     };
   }
@@ -79,6 +105,7 @@ export function checkRefundEligibility(
       reasons: [
         `Amount ${order.amount.toFixed(2)} exceeds auto-approval limit ${policy.autoApproveLimit.amount.toFixed(2)}.`,
       ],
+      facts: ['Refunds of this size need a manual review before any money is returned.'],
       citations: [policy.autoApproveLimit.ruleId],
     };
   }
@@ -87,6 +114,7 @@ export function checkRefundEligibility(
     reasons: [
       `Within ${policy.returnWindow.days}-day window (delivered ${age} days ago) and under auto-approval limit.`,
     ],
+    facts: [`The order was delivered ${age} days ago, within our ${policy.returnWindow.days}-day return window.`],
     citations: [policy.returnWindow.ruleId, policy.autoApproveLimit.ruleId],
   };
 }
