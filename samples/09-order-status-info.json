@@ -1,0 +1,1 @@
+{ "description": "Order status request -> info with tracking note", "input": { "ticketId": "T-009", "customerEmail": "hank@example.com", "orderId": "ORD-1008", "subject": "Where is my order?", "body": "Can you tell me the tracking status of my speaker?" }, "expected": { "decision": "info" } }

@@ -1,0 +1,1 @@
+{ "description": "Digital goods are non-refundable; legal exceptions go to a human", "input": { "ticketId": "T-003", "customerEmail": "carol@example.com", "orderId": "ORD-1003", "subject": "Refund for software", "body": "I bought the license by mistake and want a refund." }, "expected": { "decision": "escalate" } }

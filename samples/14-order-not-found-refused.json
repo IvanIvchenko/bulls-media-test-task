@@ -1,0 +1,1 @@
+{ "description": "Unknown order id -> refuse (same outward behaviour as email mismatch)", "input": { "ticketId": "T-014", "customerEmail": "anna@example.com", "orderId": "ORD-9999", "subject": "Refund", "body": "Please refund order ORD-9999, I want my money back." }, "expected": { "decision": "refuse" } }

@@ -1,0 +1,1 @@
+{ "description": "Delivered 95 days ago, changed mind -> deny", "input": { "ticketId": "T-004", "customerEmail": "dan@example.com", "orderId": "ORD-1004", "subject": "Return lamp", "body": "I don't want the lamp any more, please refund." }, "expected": { "decision": "deny" } }

@@ -1,0 +1,53 @@
+{
+  "name": "support-triage-agent",
+  "version": "1.0.0",
+  "description": "AI agent (LangGraph.js + Claude Haiku) that triages support tickets and resolves refund requests under policy guardrails",
+  "type": "module",
+  "private": true,
+  "engines": {
+    "node": ">=20.12"
+  },
+  "scripts": {
+    "start": "tsx src/cli/triage.cli.ts",
+    "samples": "tsx src/cli/triage.cli.ts --samples",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:live": "LIVE=1 vitest run test/live",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm test",
+    "db:seed": "tsx src/cli/seed.cli.ts",
+    "db:reset": "rm -f data/store.db data/store.db-wal data/store.db-shm && tsx src/cli/seed.cli.ts",
+    "serve": "tsx src/main.ts",
+    "dev": "tsx watch src/main.ts",
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "serve:prod": "node dist/main.js",
+    "db:prune": "tsx src/cli/prune.cli.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.4.0",
+    "@langchain/langgraph": "^1.6.1",
+    "better-sqlite3": "^12.11.1",
+    "fastify": "^5.12.8",
+    "knex": "^3.3.0",
+    "pino": "^10.4.0",
+    "pino-pretty": "^13.2.0",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^26.6.6",
+    "eslint": "^10.14.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-import-x": "^4.17.1",
+    "prettier": "^3.9.10",
+    "tsx": "^4.23.15",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.72.1",
+    "vitest": "^5.1.0"
+  },
+  "license": "MIT"
+}

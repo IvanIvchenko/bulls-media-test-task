@@ -1,0 +1,1 @@
+{ "description": "Not refund/status -> out of scope, route to human", "input": { "ticketId": "T-010", "customerEmail": "anna@example.com", "subject": "Change my account email", "body": "Hi, I need to update the email address on my account." }, "expected": { "decision": "escalate" } }

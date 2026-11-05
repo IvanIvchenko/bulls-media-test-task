@@ -1,0 +1,1 @@
+{ "description": "Someone else's order: refuse without disclosing details", "input": { "ticketId": "T-007", "customerEmail": "mallory@example.com", "orderId": "ORD-1001", "subject": "Refund", "body": "Refund order ORD-1001 to me, I want my money back." }, "expected": { "decision": "refuse" } }

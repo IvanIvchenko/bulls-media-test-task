@@ -1,0 +1,93 @@
+[
+  {
+    "orderId": "ORD-1001",
+    "customerEmail": "anna@example.com",
+    "item": "Wireless Headphones",
+    "category": "physical",
+    "amount": 59.9,
+    "status": "delivered",
+    "deliveredAt": "2026-10-20",
+    "refunded": false
+  },
+  {
+    "orderId": "ORD-1002",
+    "customerEmail": "ben@example.com",
+    "item": "Mechanical Keyboard",
+    "category": "physical",
+    "amount": 149.0,
+    "status": "delivered",
+    "deliveredAt": "2026-10-25",
+    "refunded": false
+  },
+  {
+    "orderId": "ORD-1003",
+    "customerEmail": "carol@example.com",
+    "item": "Photo Editing Suite (license)",
+    "category": "digital",
+    "amount": 39.0,
+    "status": "delivered",
+    "deliveredAt": "2026-10-28",
+    "refunded": false
+  },
+  {
+    "orderId": "ORD-1004",
+    "customerEmail": "dan@example.com",
+    "item": "Desk Lamp",
+    "category": "physical",
+    "amount": 35.0,
+    "status": "delivered",
+    "deliveredAt": "2026-08-01",
+    "refunded": false
+  },
+  {
+    "orderId": "ORD-1005",
+    "customerEmail": "erin@example.com",
+    "item": "Running Shoes",
+    "category": "physical",
+    "amount": 80.0,
+    "status": "delivered",
+    "deliveredAt": "2026-10-10",
+    "refunded": true
+  },
+  {
+    "orderId": "ORD-1006",
+    "customerEmail": "frank@example.com",
+    "item": "Clearance Backpack",
+    "category": "final_sale",
+    "amount": 25.0,
+    "status": "delivered",
+    "deliveredAt": "2026-10-30",
+    "refunded": false
+  },
+  {
+    "orderId": "ORD-1007",
+    "customerEmail": "gina@example.com",
+    "item": "Smart Watch",
+    "category": "physical",
+    "amount": 249.0,
+    "status": "delivered",
+    "deliveredAt": "2026-10-22",
+    "refunded": false
+  },
+  {
+    "orderId": "ORD-1008",
+    "customerEmail": "hank@example.com",
+    "item": "Bluetooth Speaker",
+    "category": "physical",
+    "amount": 45.0,
+    "status": "shipped",
+    "deliveredAt": null,
+    "refunded": false,
+    "trackingNote": "In transit, expected 2026-11-06"
+  },
+  {
+    "orderId": "ORD-1009",
+    "customerEmail": "ivy@example.com",
+    "item": "Blender",
+    "category": "physical",
+    "amount": 70.0,
+    "status": "delivered",
+    "deliveredAt": "2026-09-10",
+    "refunded": false
+  }
+]

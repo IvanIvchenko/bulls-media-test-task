@@ -1,0 +1,1 @@
+{ "description": "Malformed ticket (bad email, empty body) -> refuse, never reaches the LLM", "input": { "ticketId": "T-011", "customerEmail": "not-an-email", "subject": "hi", "body": "" }, "expected": { "decision": "refuse" } }

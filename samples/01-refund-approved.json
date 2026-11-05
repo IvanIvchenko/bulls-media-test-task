@@ -1,0 +1,1 @@
+{ "description": "Within 30 days, under limit -> auto-approve", "input": { "ticketId": "T-001", "customerEmail": "anna@example.com", "orderId": "ORD-1001", "subject": "Refund please", "body": "I changed my mind about the headphones, I would like my money back." }, "expected": { "decision": "approve" } }

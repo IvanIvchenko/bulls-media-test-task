@@ -1,0 +1,1 @@
+{ "description": "Valid defect claim but 149.00 > 100 limit -> human review", "input": { "ticketId": "T-002", "customerEmail": "ben@example.com", "orderId": "ORD-1002", "subject": "Keyboard broken", "body": "The keyboard arrived broken, several keys do not work. I want a refund." }, "expected": { "decision": "escalate" } }

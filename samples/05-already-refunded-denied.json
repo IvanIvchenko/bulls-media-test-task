@@ -1,0 +1,1 @@
+{ "description": "Order already refunded -> deny (no double refund)", "input": { "ticketId": "T-005", "customerEmail": "erin@example.com", "orderId": "ORD-1005", "subject": "Where is my refund", "body": "Please refund my running shoes, they are not working for me, I want my money back." }, "expected": { "decision": "deny" } }

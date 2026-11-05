@@ -1,0 +1,64 @@
+{
+  "rules": [
+    {
+      "id": "R1",
+      "title": "Return window",
+      "text": "Physical items may be refunded within {{return_window_days}} days of delivery. After {{return_window_days}} days a standard refund is not available."
+    },
+    {
+      "id": "R2",
+      "title": "Defective items",
+      "text": "Items that arrive defective or not as described may be refunded within {{defect_window_days}} days of delivery. After {{return_window_days}} days the claim cannot be checked automatically: escalate it to a human."
+    },
+    {
+      "id": "R3",
+      "title": "Digital goods",
+      "text": "Digital goods and software licenses are non-refundable once delivered, except where required by law (escalate to a human)."
+    },
+    { "id": "R4", "title": "Final sale", "text": "Items marked final sale cannot be refunded or returned." },
+    {
+      "id": "R5",
+      "title": "Automatic approval limit",
+      "text": "Refunds up to {{auto_approve_limit}} may be approved automatically. Refunds above {{auto_approve_limit}} require human review and must be escalated."
+    },
+    {
+      "id": "R6",
+      "title": "Already refunded",
+      "text": "An order that has already been refunded cannot be refunded again."
+    },
+    {
+      "id": "R7",
+      "title": "Identity verification",
+      "text": "A refund may only be processed when the ticket email matches the email on the order. Otherwise refuse and do not disclose order details."
+    },
+    {
+      "id": "S1",
+      "title": "Order status requests",
+      "text": "Customers may be told the status and tracking note of their own orders. Shipped orders show a tracking note with the expected delivery date."
+    },
+    {
+      "id": "S2",
+      "title": "Late delivery",
+      "text": "If an order is more than 7 days late, the customer may request a refund under the return window rules."
+    },
+    {
+      "id": "S3",
+      "title": "Out of scope",
+      "text": "Requests unrelated to refunds or order status (account changes, product advice, complaints about staff, legal threats) are out of scope and must be routed to a human agent."
+    }
+  ],
+  "settings": [
+    { "key": "return_window_days", "value": 30, "ruleId": "R1" },
+    { "key": "defect_window_days", "value": 60, "ruleId": "R2" },
+    { "key": "auto_approve_limit", "value": 100, "ruleId": "R5" }
+  ],
+  "categoryRules": [
+    {
+      "category": "digital",
+      "verdict": "escalate",
+      "ruleId": "R3",
+      "reason": "Digital goods are non-refundable; a human must check legal exceptions."
+    },
+    { "category": "final_sale", "verdict": "deny", "ruleId": "R4", "reason": "Final sale items cannot be refunded." }
+  ]
+}

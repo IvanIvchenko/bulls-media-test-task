@@ -1,0 +1,1 @@
+{ "description": "Refund request with no order id -> ask the customer for it", "input": { "ticketId": "T-012", "customerEmail": "anna@example.com", "subject": "Refund", "body": "I want a refund for my last purchase." }, "expected": { "decision": "info" } }

@@ -1,0 +1,1 @@
+{ "description": "Final-sale item -> deny", "input": { "ticketId": "T-006", "customerEmail": "frank@example.com", "orderId": "ORD-1006", "subject": "Return backpack", "body": "I would like to return the backpack and get a refund." }, "expected": { "decision": "deny" } }
