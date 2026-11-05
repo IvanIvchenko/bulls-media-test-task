@@ -6,7 +6,7 @@ TypeScript agent (LangGraph.js + Claude Haiku) that triages support tickets and 
 
 ## Run this in 2 minutes
 
-Needs Node 20.12+ (`nvm use` picks 22). No API key, network or database setup: without a key it runs on a deterministic mock model, with in-memory SQLite.
+Needs Node 22.13+ (`nvm use` picks it; older versions stop at `npm install` with a clear version error). No API key, network or database setup: without a key it runs on a deterministic mock model, with in-memory SQLite.
 
 ```bash
 npm install
