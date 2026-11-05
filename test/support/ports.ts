@@ -32,23 +32,5 @@ export const slowPorts = (ports: Ports, maxMs?: number): Ports => ({
   orders: withLatency(ports.orders, maxMs),
   policies: withLatency(ports.policies, maxMs),
   audit: withLatency(ports.audit, maxMs),
-  claims: withLatency(ports.claims, maxMs),
   reviews: withLatency(ports.reviews, maxMs),
 });
-
-/** Wrap a port and count how often each method is called. */
-export function counted<T extends object>(port: T): { port: T; calls: Record<string, number> } {
-  const calls: Record<string, number> = {};
-  const wrapped = new Proxy(port, {
-    get(target, property, receiver) {
-      const value = Reflect.get(target, property, receiver);
-      if (typeof value !== 'function') return value;
-      return (...args: unknown[]) => {
-        const name = String(property);
-        calls[name] = (calls[name] ?? 0) + 1;
-        return value.apply(target, args);
-      };
-    },
-  });
-  return { port: wrapped, calls };
-}

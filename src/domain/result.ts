@@ -29,6 +29,18 @@ const handoffSchema = z.object({
   policies: z.array(
     z.object({ id: z.string(), title: z.string(), text: z.string(), source: z.enum(['cited', 'suggested']) }),
   ),
+  /** Earlier reviews of other tickets about this same order that ended in a no, so the reviewer decides knowing. */
+  priorDenials: z
+    .array(
+      z.object({
+        ticketId: z.string(),
+        reviewer: z.string(),
+        note: z.string().optional(),
+        /** ISO time the answer was given. */
+        decidedAt: z.string(),
+      }),
+    )
+    .optional(),
 });
 export type Handoff = z.infer<typeof handoffSchema>;
 

@@ -1,24 +1,25 @@
 import type { ReviewsMapper } from './reviews.mapper.js';
 import type { ReviewsRepository } from './reviews.repository.js';
+import { fromStoredTimestamp } from '../db/timestamps.util.js';
 import type {
   NewReview,
+  PriorDenial,
+  Result,
   ReviewAnswer,
-  ReviewLease,
   ReviewRecord,
   ReviewStore,
   ReviewSummary,
-  ReviewToken,
 } from '../domain/index.js';
 
-/** Runs paused for a human, shared by every instance that uses the same database. */
+/** Runs paused for a human. */
 export class ReviewsService implements ReviewStore {
   public constructor(
     private readonly repository: ReviewsRepository,
     private readonly mapper: ReviewsMapper,
   ) {}
 
-  public async open(review: NewReview): Promise<void> {
-    await this.repository.insertPending(review);
+  public async open(review: NewReview): Promise<string | undefined> {
+    return this.repository.insertPending(review);
   }
 
   public async list(): Promise<ReviewSummary[]> {
@@ -30,16 +31,29 @@ export class ReviewsService implements ReviewStore {
     return row ? this.mapper.toRecord(row) : undefined;
   }
 
-  public async begin(reviewId: string, staleAfterMs: number): Promise<ReviewLease | undefined> {
-    const lease = await this.repository.begin(reviewId, staleAfterMs);
-    return lease ? { review: this.mapper.toRecord(lease.row), token: lease.token } : undefined;
+  public async deniedFor(orderId: string, exceptReviewId: string): Promise<PriorDenial[]> {
+    return (await this.repository.deniedFor(orderId, exceptReviewId)).map((row) => ({
+      ticketId: row.ticket_id,
+      reviewer: row.reviewer ?? 'unknown',
+      note: row.note ?? undefined,
+      decidedAt: fromStoredTimestamp(row.resolved_at ?? new Date(0)),
+    }));
   }
 
-  public async release(reviewId: string, token: ReviewToken): Promise<void> {
-    await this.repository.release(reviewId, token);
+  public async begin(reviewId: string): Promise<ReviewRecord | undefined> {
+    const row = await this.repository.begin(reviewId);
+    return row ? this.mapper.toRecord(row) : undefined;
   }
 
-  public async resolve(reviewId: string, token: ReviewToken, answer: ReviewAnswer): Promise<boolean> {
-    return this.repository.resolve(reviewId, token, answer);
+  public async release(reviewId: string): Promise<void> {
+    await this.repository.release(reviewId);
+  }
+
+  public async resolve(reviewId: string, answer: ReviewAnswer, result: Result): Promise<void> {
+    await this.repository.resolve(reviewId, answer, result);
+  }
+
+  public async recover(): Promise<number> {
+    return this.repository.recover();
   }
 }

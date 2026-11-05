@@ -15,15 +15,10 @@ describe('GatherNode', () => {
     expect(update).toMatchObject({ lookup: 'found', orderId: 'ORD-1001', order });
   });
 
-  it('decides again as the first run did when this same ticket already refunded the order', async () => {
-    const refunded = { ...order, refunded: true, refundedByTicket: 'T-1' };
+  it('hands on an order this ticket already refunded as it is found, so the decision can recognise its own refund', async () => {
+    const refunded = { ...order, refunded: true, refundedByTicket: 'T-1', refundedAmount: 59.9 };
     const update = await new GatherNode(fakeOrders({ found: true, order: refunded }).orders).execute(gatherState());
-    expect(update.order?.refunded).toBe(false);
-
-    const other = await new GatherNode(
-      fakeOrders({ found: true, order: { ...refunded, refundedByTicket: 'T-9' } }).orders,
-    ).execute(gatherState());
-    expect(other.order?.refunded).toBe(true); // another ticket's refund still blocks this one
+    expect(update.order).toEqual(refunded);
   });
 
   it('records why an order could not be shown, without storing anything of it', async () => {

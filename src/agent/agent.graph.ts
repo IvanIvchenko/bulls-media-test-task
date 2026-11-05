@@ -3,7 +3,7 @@ import { END, START, StateGraph, type BaseCheckpointSaver } from '@langchain/lan
 import { State } from './agent.state.js';
 import { STEP } from './constants.js';
 import type { AgentNode, AgentState } from './typedef.js';
-import { FLAG } from '../domain/index.js';
+import { FLAG, refundedBy } from '../domain/index.js';
 
 /** One node instance per step. The graph decides the order; each node decides nothing about routing. */
 export type AgentNodes = Record<
@@ -32,9 +32,13 @@ const afterValidate = (state: AgentState) => (state.ticket ? STEP.LOAD_POLICIES 
 const afterClassify = (state: AgentState) =>
   state.classification && !state.flags.includes(FLAG.PROMPT_INJECTION_SUSPECTED) ? STEP.GATHER : STEP.DECIDE;
 
-/** Eligibility only matters for refund requests on a verified order. */
+/** Eligibility only matters for refund requests on a verified order that this ticket has not already had refunded. */
 const afterGather = (state: AgentState) =>
-  state.classification?.intent === 'refund_request' && state.lookup === 'found' ? STEP.CHECK_ELIGIBILITY : STEP.DECIDE;
+  state.classification?.intent === 'refund_request' &&
+  state.lookup === 'found' &&
+  !refundedBy(state.order, state.ticket?.ticketId)
+    ? STEP.CHECK_ELIGIBILITY
+    : STEP.DECIDE;
 
 /** The only path to a side effect. */
 const afterDecide = (state: AgentState) => (state.decision === 'approve' ? STEP.EXECUTE_REFUND : STEP.CITE_POLICIES);

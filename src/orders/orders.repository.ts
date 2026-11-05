@@ -10,7 +10,7 @@ export class OrdersRepository {
     return this.database<OrderRow>(TABLE.ORDERS)
       .leftJoin(TABLE.REFUNDS, 'refunds.order_id', 'orders.order_id')
       .where('orders.order_id', orderId)
-      .first('orders.*', 'refunds.ticket_id as refunded_by_ticket');
+      .first('orders.*', 'refunds.ticket_id as refunded_by_ticket', 'refunds.amount as refunded_amount');
   }
 
   /**

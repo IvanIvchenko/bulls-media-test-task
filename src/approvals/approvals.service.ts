@@ -6,7 +6,6 @@ import {
   type ReviewRecord,
   type ReviewStore,
   type ReviewSummary,
-  type TicketClaims,
 } from '../domain/index.js';
 import { BusinessLogicError } from '../shared/errors/business-logic-error.js';
 import { ErrorCodes } from '../shared/errors/error-codes.js';
@@ -15,18 +14,13 @@ import { Logger } from '../shared/logger/logger.js';
 /**
  * A person's yes or no on an escalation the agent paused. The database lets exactly one decision through, so two
  * reviewers (or a double click) cannot both act: the second gets a conflict, and the refund step is guarded anyway.
- * A decision whose owner dies does not block the review: after `staleAfterMs` another call takes it over, and the
- * first owner, if it comes back, can no longer record anything.
  */
 export class ApprovalsService {
   private readonly logger = new Logger(ApprovalsService.name);
 
   public constructor(
     private readonly reviews: ReviewStore,
-    private readonly claims: TicketClaims,
     private readonly agent: ReviewResumer,
-    /** A review whose decider has not finished after this long may be taken over by another caller. */
-    private readonly staleAfterMs: number,
   ) {}
 
   public async pending(): Promise<ReviewSummary[]> {
@@ -40,7 +34,7 @@ export class ApprovalsService {
   }
 
   /**
-   * Apply the answer to the paused run and replace the ticket's stored decision with the final one.
+   * Apply the answer to the paused run and record it.
    *
    * The review is recorded with the answer the run actually applied, which is not always this one: if an earlier
    * attempt already applied someone else's answer and failed later (money may have moved on it), a retry carries on
@@ -56,34 +50,23 @@ export class ApprovalsService {
       );
     }
 
-    const lease = await this.reviews.begin(reviewId, this.staleAfterMs);
-    if (!lease) {
+    const review = await this.reviews.begin(reviewId);
+    if (!review) {
       if (await this.reviews.find(reviewId)) {
         throw new BusinessLogicError(`Review ${reviewId} is not waiting for an answer.`, ErrorCodes.REVIEW_NOT_PENDING);
       }
       throw this.notFound(reviewId);
     }
 
-    const { review, token } = lease;
     let result: Result;
     let applied: ReviewAnswer;
     let consumed: boolean;
     try {
       ({ result, consumed } = await this.agent.resume(review, answer.data));
       applied = this.appliedAnswer(result, answer.data); // what the run says it used: the truth, not this call's input
-      if (!(await this.claims.replaceResult(reviewId, result))) {
-        this.logger.warn('the ticket claim is gone; the answer is recorded in the audit trail only', { reviewId });
-      }
-      if (!(await this.reviews.resolve(reviewId, token, applied))) {
-        // Someone else took the review over while this call was still going: they will record it, not this call.
-        this.logger.warn('the review was taken over before this answer could be recorded', { reviewId });
-        throw new BusinessLogicError(
-          `Review ${reviewId} was taken over by another reviewer before this answer was recorded.`,
-          ErrorCodes.REVIEW_NOT_PENDING,
-        );
-      }
+      await this.reviews.resolve(reviewId, applied, result);
     } catch (error) {
-      await this.reviews.release(reviewId, token); // not recorded: let it be answered again (the saved run is still there)
+      await this.reviews.release(reviewId); // not recorded: let it be answered again (the saved run is still there)
       throw error;
     }
     await this.forget(review);

@@ -3,7 +3,6 @@ import type { Database, Migration, Transaction } from '../typedef.js';
 const CATEGORIES = ['physical', 'digital', 'final_sale'];
 const ORDER_STATUSES = ['processing', 'shipped', 'delivered', 'cancelled'];
 const VERDICTS = ['deny', 'escalate'];
-const CLAIM_STATUSES = ['in_progress', 'done'];
 
 /** `value IN (?, ?, ...)` with the allowed values bound. */
 const oneOf = (column: string, values: string[]) =>
@@ -78,18 +77,6 @@ export const initialSchema: Migration = {
       t.text('summary').notNullable();
       t.text('result_json').notNullable();
       t.timestamp('created_at', { useTz: true }).notNullable();
-    });
-
-    // Who is processing which ticket. The primary key is the referee: the database lets exactly one caller insert
-    // a given id, whichever process it runs in. owner_token fences a presumed-dead owner out.
-    await create('ticket_claims', (t) => {
-      t.string('ticket_id').primary();
-      t.string('request_hash').notNullable();
-      t.string('status').notNullable();
-      t.string('owner_token').notNullable();
-      t.text('result_json');
-      t.timestamp('claimed_at', { useTz: true }).notNullable();
-      t.check(...oneOf('status', CLAIM_STATUSES), 'ticket_claims_status_check');
     });
   },
 };

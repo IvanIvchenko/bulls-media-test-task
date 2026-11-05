@@ -22,7 +22,7 @@ const order: Order = {
   refunded: false,
 };
 const base = {
-  ticket: { subject: 'Refund', body: 'I want my money back.' },
+  ticket: { ticketId: 'T-1', subject: 'Refund', body: 'I want my money back.' },
   flags: [] as string[],
   classification: cls(),
   lookup: 'found' as const,
@@ -43,7 +43,11 @@ describe('decideOutcome (pure policy)', () => {
     expect(decideOutcome({ ...base, classification: cls({ intent: 'other' }) }).decision).toBe('escalate');
   });
   it("does not approve on the model's word alone: its quote of the request must be in the ticket", () => {
-    const ticket = { subject: 'My order', body: 'The headphones arrived yesterday. I want my money back.' };
+    const ticket = {
+      ticketId: 'T-1',
+      subject: 'My order',
+      body: 'The headphones arrived yesterday. I want my money back.',
+    };
     const withQuote = (refundRequestQuote: string | null) =>
       decideOutcome({ ...base, ticket, classification: cls({ refundRequestQuote }) });
 
@@ -76,6 +80,36 @@ describe('decideOutcome (pure policy)', () => {
     });
     expect(outcome.facts.filter((fact) => /team member/.test(fact))).toHaveLength(1);
   });
+  describe('a ticket whose refund was already recorded', () => {
+    const paid: Order = { ...order, refunded: true, refundedByTicket: 'T-1', refundedAmount: 35 };
+
+    it('is answered with that refund again, for the amount that was paid, whatever else would be said', () => {
+      const outcome = decideOutcome({ ...base, order: paid, eligibility: undefined });
+      expect(outcome).toMatchObject({ decision: 'approve', refundAmount: 35, citations: [] });
+      expect(outcome.reasons.join(' ')).toMatch(/already recorded/);
+    });
+
+    it('does not need the model to have quoted a request again', () => {
+      const outcome = decideOutcome({ ...base, order: paid, classification: cls({ refundRequestQuote: null }) });
+      expect(outcome.decision).toBe('approve');
+    });
+
+    it('is not done for a refund made by a different ticket: that is an ordinary already-refunded order', () => {
+      const other = { ...paid, refundedByTicket: 'T-OTHER' };
+      const eligibility = { verdict: 'deny' as const, reasons: ['r'], facts: ['f'], citations: ['R6'] };
+      expect(decideOutcome({ ...base, order: other, eligibility })).toMatchObject({ decision: 'deny' });
+    });
+
+    it('falls back to the order amount if the refund record says nothing', () => {
+      const outcome = decideOutcome({ ...base, order: { ...paid, refundedAmount: undefined } });
+      expect(outcome.refundAmount).toBe(40);
+    });
+
+    it('still lets safety flags win', () => {
+      expect(decideOutcome({ ...base, order: paid, flags: ['prompt_injection_suspected'] }).decision).toBe('escalate');
+    });
+  });
+
   it('refuses unverifiable orders with no refund amount and no details', () => {
     for (const lookup of ['not_found', 'email_mismatch'] as const) {
       const o = decideOutcome({ ...base, lookup, order: undefined });

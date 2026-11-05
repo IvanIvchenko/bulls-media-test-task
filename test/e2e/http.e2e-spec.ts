@@ -111,38 +111,36 @@ describe('input handling', () => {
   });
 });
 
-describe('idempotency by ticketId', () => {
-  it('replays the stored decision for an identical repeat, without a second refund or audit row', async () => {
+describe('a ticket sent twice', () => {
+  it('is run again and answered with the refund it already got, paying nothing twice', async () => {
     const server = await start();
     const first = await post(server, ticket());
     const second = await post(server, ticket());
-    expect(first.json().decision).toBe('approve');
+    expect(first.json()).toMatchObject({ decision: 'approve', refundAmount: 59.9 });
     expect(second.statusCode).toBe(200);
-    expect(second.headers['idempotent-replay']).toBe('true');
-    expect(second.json()).toEqual(first.json());
-    expect(first.headers['idempotent-replay']).toBeUndefined();
+    expect(second.json()).toMatchObject({ decision: 'approve', refundAmount: 59.9 });
+    expect(second.headers['idempotent-replay']).toBeUndefined(); // there is no replay: it was run again
     expect(await count(server, 'refunds')).toBe(1);
-    expect(await count(server, 'decisions')).toBe(1);
+    expect(await count(server, 'decisions')).toBe(2); // each run is in the audit trail
   });
 
-  it('treats the same payload with different key order as identical', async () => {
+  it('is safe when both copies arrive at the same moment', async () => {
     const server = await start();
-    await post(server, ticket());
-    const reordered = Object.fromEntries(Object.entries(ticket()).reverse());
-    const res = await post(server, reordered);
-    expect(res.headers['idempotent-replay']).toBe('true');
+    const answers = await Promise.all([post(server, ticket()), post(server, ticket())]);
+    expect(answers.map((answer) => answer.json().decision)).toEqual(['approve', 'approve']);
+    expect(await count(server, 'refunds')).toBe(1);
   });
 
-  it('returns 409 when a ticketId is reused with a different payload', async () => {
+  it('does not refuse the same ticket id with another body: it is processed, and its refund is the one recorded', async () => {
     const server = await start();
     await post(server, ticket());
     const res = await post(server, ticket({ body: 'Something else entirely' }));
-    expect(res.statusCode).toBe(409);
-    expect(res.json().code).toBe('TICKET_ID_CONFLICT');
-    expect(await count(server, 'decisions')).toBe(1);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({ decision: 'approve', refundAmount: 59.9 });
+    expect(await count(server, 'refunds')).toBe(1);
   });
 
-  it('lets a client fix an invalid payload and reuse the same ticketId', async () => {
+  it('lets a client fix an invalid payload and send it again', async () => {
     const server = await start();
     expect((await post(server, ticket({ customerEmail: 'not-an-email' }))).statusCode).toBe(400);
     const fixed = await post(server, ticket());

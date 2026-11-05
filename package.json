@@ -23,8 +23,7 @@
     "serve": "tsx src/main.ts",
     "dev": "tsx watch src/main.ts",
     "build": "rm -rf dist && tsc -p tsconfig.build.json",
-    "serve:prod": "node dist/main.js",
-    "db:prune": "tsx src/cli/prune.cli.ts"
+    "serve:prod": "node dist/main.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.4.0",

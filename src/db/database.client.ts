@@ -1,16 +1,14 @@
 import knex from 'knex';
 
-import { retryAsyncOnBusy, retryOnBusy } from './busy-retry.util.js';
 import { SQLITE_BUSY_TIMEOUT_MS, SQLITE_MEMORY } from './constants.js';
 import { migrate } from './database.migrator.js';
 import { seedIfEmpty } from './database.seed.js';
-import { withInitLock } from './init-lock.util.js';
 import type { Database, OpenOptions, SqliteConnection } from './typedef.js';
 
 type AfterCreateDone = (error: Error | null, connection: SqliteConnection) => void;
 
 function configureSqlite(connection: SqliteConnection, path: string): void {
-  // First, so that waiting for another process's lock works for everything that follows.
+  // First, so a short wait for another process's lock (the CLI beside the service, say) does not fail what follows.
   connection.pragma(`busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS}`);
   if (path !== SQLITE_MEMORY) connection.pragma('journal_mode = WAL'); // readers do not block the writer
   connection.pragma('foreign_keys = ON');
@@ -30,8 +28,7 @@ function connect(path: string): Database {
       max: 1,
       afterCreate: (connection: SqliteConnection, done: AfterCreateDone) => {
         try {
-          // Safe to repeat, so a BUSY from a process starting at the same moment just means "try again".
-          retryOnBusy(() => configureSqlite(connection, path));
+          configureSqlite(connection, path);
           done(null, connection);
         } catch (error) {
           done(error as Error, connection);
@@ -43,17 +40,15 @@ function connect(path: string): Database {
 
 /**
  * Connect, bring the schema up to date and seed any empty tables. ":memory:" gives a fresh, isolated database,
- * which is what tests and `npm run samples` use. Safe to run in several processes at once.
+ * which is what tests and `npm run samples` use. Meant for one process at a time owning a database file.
  */
 export async function openDatabase(path: string = SQLITE_MEMORY, options: OpenOptions = {}): Promise<Database> {
   const database = connect(path);
   try {
-    await retryAsyncOnBusy(() =>
-      withInitLock(database, async (trx) => {
-        await migrate(trx);
-        await seedIfEmpty(trx, options);
-      }),
-    );
+    await database.transaction(async (trx) => {
+      await migrate(trx);
+      await seedIfEmpty(trx, options);
+    });
   } catch (error) {
     await database.destroy();
     throw error;

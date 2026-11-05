@@ -7,7 +7,6 @@ import { describe, expect, it } from 'vitest';
 
 import { openDatabase } from './database.client.js';
 import { migrate } from './database.migrator.js';
-import { withInitLock } from './init-lock.util.js';
 import { countRows, openTestDatabase } from '../../test/support/database.js';
 import { NOW, createTestContainer } from '../../test/support/helpers.js';
 import { ConfigService } from '../config/config.service.js';
@@ -37,7 +36,7 @@ describe('database', () => {
     expect(await countRows(db, 'policy_rules')).toBe(10);
     expect(await countRows(db, 'policy_settings')).toBe(3);
     expect(await countRows(db, 'category_rules')).toBe(2);
-    for (const empty of ['refunds', 'decisions', 'ticket_claims']) expect(await countRows(db, empty)).toBe(0);
+    for (const empty of ['refunds', 'decisions', 'pending_reviews']) expect(await countRows(db, empty)).toBe(0);
     await db.destroy();
   });
 
@@ -55,12 +54,13 @@ describe('database', () => {
     await expect(refund('NOPE')).rejects.toThrow(/foreign key/i);
 
     await expect(
-      db('ticket_claims').insert({
+      db('pending_reviews').insert({
+        review_id: 'T:x',
         ticket_id: 'T',
-        request_hash: 'h',
+        order_id: 'ORD-1',
+        thread_id: 't',
         status: 'weird',
-        owner_token: 'o',
-        claimed_at: NOW.toISOString(),
+        request_json: '{}',
       }),
     ).rejects.toThrow(/check/i);
     await db.destroy();
@@ -135,7 +135,7 @@ describe('seeding', () => {
 describe('migrations', () => {
   it('run once: applying them again changes nothing', async () => {
     const db = await openTestDatabase();
-    expect(await withInitLock(db, (trx) => migrate(trx))).toEqual([]);
+    expect(await db.transaction((trx) => migrate(trx))).toEqual([]);
     expect(await db('schema_migrations').pluck('name')).toEqual([
       '001-initial-schema',
       '002-defect-claims-need-review',
@@ -149,7 +149,7 @@ describe('migrations', () => {
       'Items that arrive defective or not as described may be refunded within {{defect_window_days}} days of delivery.';
     const rerun = async (db: Awaited<ReturnType<typeof openTestDatabase>>) => {
       await db('schema_migrations').where({ name: '002-defect-claims-need-review' }).del();
-      await withInitLock(db, (trx) => migrate(trx));
+      await db.transaction((trx) => migrate(trx));
       return (await db('policy_rules').where({ id: 'R2' }).first('text'))!.text as string;
     };
 
@@ -200,13 +200,13 @@ describe('a SQLite file', () => {
       old.close();
 
       const db = await openDatabase(path);
-      expect(await db.schema.hasTable('ticket_claims')).toBe(true); // the tables it lacked were added
+      expect(await db.schema.hasTable('pending_reviews')).toBe(true); // the tables it lacked were added
       expect(await countRows(db, 'decisions')).toBe(1); // and its rows were kept
       await db.destroy();
     });
   });
 
-  it('waits for another writer instead of failing, and lets readers through (WAL)', async () => {
+  it('sets the SQLite pragmas: a short wait for a locked file, readers beside the writer (WAL), foreign keys on', async () => {
     await withTempDir('triage-shared-', async (dir) => {
       const db = await openDatabase(join(dir, 'shared.db'));
       expect(((await db.raw('PRAGMA busy_timeout')) as { timeout: number }[])[0]?.timeout).toBe(5000);

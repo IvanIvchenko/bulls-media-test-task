@@ -62,6 +62,9 @@ export class AgentService {
   }
 
   public async run(raw: unknown, options: RunOptions = {}): Promise<Result> {
+    const denied = options.reviewId ? await this.deniedAfterReview(options.reviewId) : undefined;
+    if (denied) return denied;
+
     const finalState = await this.graph.invoke({
       raw,
       lookup: 'skipped',
@@ -111,6 +114,17 @@ export class AgentService {
     await this.deps.checkpointer.deleteThread(review.threadId);
   }
 
+  /**
+   * A person said no to this ticket, so it stays no: sending it again must not buy another reviewer, and an approval
+   * on the second try must not pay out. The stored denial is returned as it was given, with no model call and no new
+   * audit row. (Only a denial is replayed: an approval is already covered by the refund that was paid. A customer who
+   * has a new case opens a new ticket.)
+   */
+  private async deniedAfterReview(reviewId: string): Promise<Result | undefined> {
+    const earlier = await this.deps.reviews.find(reviewId);
+    return earlier?.status === 'resolved' && earlier.answer?.action === 'deny' ? earlier.finalResult : undefined;
+  }
+
   private async pauseForReview(state: AgentState, result: Result, reviewId: string): Promise<Result> {
     const threadId = randomUUID();
     const config = this.configFor(threadId);
@@ -118,13 +132,44 @@ export class AgentService {
       await this.reviewGraph.invoke(state, config); // runs to the interrupt and stops there, saved
       if (!(await this.isWaiting(config))) throw this.invariant('The review run did not wait for a reviewer.');
 
-      const pending: Result = { ...result, review: { status: 'pending' } };
-      await this.deps.reviews.open({ reviewId, ticketId: pending.ticketId, threadId, request: pending });
+      const pending = await this.pendingResult(result, state, reviewId);
+      const replaced = await this.deps.reviews.open({
+        reviewId,
+        ticketId: pending.ticketId,
+        orderId: state.order?.orderId ?? '',
+        threadId,
+        request: pending,
+      });
+      // The same ticket was sent again while it waited: its earlier run is replaced, so its saved state is not needed.
+      if (replaced) await this.deps.checkpointer.deleteThread(replaced);
       return pending;
     } catch (error) {
       await this.deps.checkpointer.deleteThread(threadId); // nothing is waiting on it
       throw error;
     }
+  }
+
+  /**
+   * The escalation as the reviewer will see it: marked pending, and if a reviewer already said no to another ticket about
+   * this order, with that in the handoff. The customer is not blocked (a new ticket is a new case), but whoever answers
+   * this one decides knowing.
+   */
+  private async pendingResult(result: Result, state: AgentState, reviewId: string): Promise<Result> {
+    const pending: Result = { ...result, review: { status: 'pending' } };
+    const denials = state.order ? await this.deps.reviews.deniedFor(state.order.orderId, reviewId) : [];
+    if (denials.length === 0 || !pending.handoff) return pending;
+    return {
+      ...pending,
+      handoff: {
+        ...pending.handoff,
+        priorDenials: denials.map(({ ticketId, reviewer, note, decidedAt }) => ({
+          ticketId,
+          reviewer,
+          note,
+          decidedAt: decidedAt.toISOString(),
+        })),
+      },
+    };
   }
 
   private async isWaiting(config: ThreadConfig): Promise<boolean> {

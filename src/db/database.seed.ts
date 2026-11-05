@@ -29,8 +29,7 @@ const isEmpty = async (trx: Transaction, table: string): Promise<boolean> => {
 
 /**
  * Insert seed data into any table that is still empty. Safe to call on every start.
- * Call it inside `withInitLock`: the "is it empty?" check and the inserts then happen while no other instance can
- * start up, so several instances booting together take turns and only the first one seeds.
+ * Call it inside the same transaction as the migrations, so the "is it empty?" check and the inserts are one step.
  */
 export async function seedIfEmpty(trx: Transaction, options: OpenOptions = {}): Promise<void> {
   if (await isEmpty(trx, 'policy_rules')) {

@@ -28,13 +28,10 @@ export interface TestContainerOptions {
 export async function createTestContainer(options: TestContainerOptions = {}): Promise<Container> {
   const database = options.database ?? (await openTestDatabase({ orders: options.orders }));
   return createContainer({
-    // Short waits: a duplicate polls every few ms instead of every 200 ms.
-    // Short waits, and a model that cannot take long, so the short claim windows tests use stay valid.
+    // A model that cannot take long, so a failing one fails fast.
     config: ConfigService.fromObject({
       LLM_TIMEOUT_MS: '1000',
       LLM_MAX_RETRIES: '0',
-      CLAIM_POLL_MS: '5',
-      CLAIM_WAIT_MS: '3000',
       ...options.env,
     }),
     database,
@@ -44,19 +41,7 @@ export async function createTestContainer(options: TestContainerOptions = {}): P
   });
 }
 
-/** Make a claim look as if its owner made it `ageMs` ago, by the database's clock. */
-export async function backdateClaim(database: Container['database'], claimKey: string, ageMs: number) {
-  const claimedAt = new Date(Date.now() - ageMs).toISOString().slice(0, 19).replace('T', ' ');
-  await database('ticket_claims').where({ ticket_id: claimKey }).update({ claimed_at: claimedAt });
-}
-
 /** Run one raw ticket through the agent. */
-/** Make a review look as if its decider started `ageMs` ago, by the database's clock. */
-export async function backdateReview(database: Container['database'], reviewId: string, ageMs: number) {
-  const since = new Date(Date.now() - ageMs).toISOString().slice(0, 19).replace('T', ' ');
-  await database('pending_reviews').where({ review_id: reviewId }).update({ deciding_since: since });
-}
-
 export const run = async (raw: unknown, container?: Container) =>
   (container ?? (await createTestContainer())).agent.run(raw);
 

@@ -39,4 +39,13 @@ describe('ExecuteRefundNode', () => {
     await outOfOrder(new ExecuteRefundNode(orders, () => NOW), /orderId/);
     expect(recordRefund).not.toHaveBeenCalled();
   });
+
+  it('pays nothing again for a ticket whose refund is already recorded, and says so', async () => {
+    const paid = { ...order, refunded: true, refundedByTicket: 'T-1' };
+    const { orders, recordRefund } = fakeOrders({ found: true, order: paid });
+    const update = await new ExecuteRefundNode(orders, () => NOW).execute({ ...refundState, order: paid });
+    expect(recordRefund).not.toHaveBeenCalled();
+    expect(update.decision).toBeUndefined();
+    expect(update.trace?.[0]).toMatchObject({ ok: true, detail: expect.stringContaining('already recorded') });
+  });
 });

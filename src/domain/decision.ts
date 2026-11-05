@@ -1,7 +1,7 @@
 import { FLAG, ORDER_ID_PREFIX } from './constants.js';
 import type { Eligibility } from './eligibility.js';
 import { roundMoney } from './money.js';
-import type { Order } from './order.js';
+import { refundedBy, type Order } from './order.js';
 import { RULE } from './policy.js';
 import { refundQuoteIsInTicket } from './refund-request.js';
 import type { Result } from './result.js';
@@ -17,7 +17,7 @@ export type OrderLookup = 'found' | 'not_found' | 'email_mismatch' | 'no_order_i
 export interface DecisionInput {
   flags: readonly string[];
   /** The customer's own words. A refund is only approved if the model's quote of the request is really in them. */
-  ticket?: Pick<Ticket, 'subject' | 'body'>;
+  ticket?: Pick<Ticket, 'ticketId' | 'subject' | 'body'>;
   classification?: Classification;
   lookup: OrderLookup;
   order?: Order;
@@ -106,6 +106,8 @@ export function decideOutcome(state: DecisionInput): Outcome {
       [RULE.ORDER_STATUS],
     );
   }
+
+  if (refundedBy(order, ticket?.ticketId)) return refundAlreadyRecordedOutcome(order);
 
   if (!eligibility) return buildOutcome('escalate', ['Eligibility not evaluated.'], HUMAN_REVIEW_FACTS);
   const facts = [`Regarding order ${order.orderId} (${order.item}).`, ...eligibility.facts];
@@ -203,5 +205,19 @@ export function orderChangedOutcome(what: string, order: Order, citations: strin
       ...HUMAN_REVIEW_FACTS,
     ],
     citations,
+  );
+}
+
+/**
+ * This ticket was already refunded (sent twice, or answered before a crash): say so again. Nothing is paid, nothing is
+ * re-judged: the money moved on a decision that was already made, and it is the amount that was actually paid.
+ */
+export function refundAlreadyRecordedOutcome(order: Order): Outcome {
+  return buildOutcome(
+    'approve',
+    ['The refund for this ticket was already recorded.'],
+    [`Regarding order ${order.orderId} (${order.item}).`, 'This refund was already issued for your request.'],
+    [],
+    order.refundedAmount ?? order.amount,
   );
 }

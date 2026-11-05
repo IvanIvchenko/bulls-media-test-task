@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { backdateReview, createTestContainer } from '../../test/support/helpers.js';
+import { createTestContainer } from '../../test/support/helpers.js';
 import type { NewReview, Result } from '../domain/index.js';
 
 const request: Result = {
@@ -21,21 +21,23 @@ const request: Result = {
 const review = (over: Partial<NewReview> = {}): NewReview => ({
   reviewId: 'T-1:abc',
   ticketId: 'T-1',
+  orderId: 'ORD-1',
   threadId: 'thread-1',
   request,
   ...over,
 });
-const STALE = 60_000;
 const answer = { action: 'deny' as const, reviewer: 'Maria', note: 'no' };
+const finalDenial: Result = { ...request, decision: 'deny', review: { status: 'denied', reviewer: 'Maria' } };
 
-async function setup() {
+const reviews = async () => (await createTestContainer()).reviews;
+const withDatabase = async () => {
   const container = await createTestContainer();
   return { store: container.reviews, database: container.database };
-}
+};
 
 describe('ReviewsService', () => {
   it('lists waiting reviews, oldest first, with what a reviewer needs', async () => {
-    const { store } = await setup();
+    const store = await reviews();
     await store.open(review());
     await store.open(review({ reviewId: 'T-2:abc', ticketId: 'T-2' }));
     const listed = await store.list();
@@ -44,132 +46,162 @@ describe('ReviewsService', () => {
   });
 
   it('knows nothing about a review that was never opened', async () => {
-    const { store } = await setup();
+    const store = await reviews();
     expect(await store.find('nope')).toBeUndefined();
-    expect(await store.begin('nope', STALE)).toBeUndefined();
+    expect(await store.begin('nope')).toBeUndefined();
   });
 
   describe('opening', () => {
-    it('replaces a waiting review when the run is repeated after a crash', async () => {
-      const { store } = await setup();
-      await store.open(review());
-      await store.open(review({ threadId: 'thread-2' }));
+    it('replaces a waiting review when the ticket is sent again, and returns the run it replaced', async () => {
+      const store = await reviews();
+      expect(await store.open(review())).toBeUndefined(); // nothing was waiting
+      expect(await store.open(review({ threadId: 'thread-2' }))).toBe('thread-1');
       expect(await store.find('T-1:abc')).toMatchObject({ threadId: 'thread-2' });
       expect(await store.list()).toHaveLength(1);
     });
 
-    it('opens a new review when the same ticket id escalates again after an old one was answered', async () => {
-      // e.g. the old claim was pruned and the client reused the ticket id. The customer must not be left "pending"
-      // with no review for anyone to see.
-      const { store } = await setup();
+    it('opens a new review when the same ticket escalates again after an old one was answered', async () => {
+      const store = await reviews();
       await store.open(review());
-      const lease = (await store.begin('T-1:abc', STALE))!;
-      await store.resolve('T-1:abc', lease.token, { action: 'deny', reviewer: 'Ana' });
+      await store.begin('T-1:abc');
+      await store.resolve('T-1:abc', { action: 'deny', reviewer: 'Ana' }, finalDenial);
 
-      await store.open(review({ threadId: 'thread-2' }));
+      expect(await store.open(review({ threadId: 'thread-2' }))).toBeUndefined(); // an answered run needs no clean-up
       expect(await store.find('T-1:abc')).toMatchObject({ status: 'pending', threadId: 'thread-2' });
       expect(await store.list()).toHaveLength(1);
     });
 
     it('refuses, loudly, to replace a review someone is deciding right now', async () => {
-      const { store } = await setup();
+      const store = await reviews();
       await store.open(review());
-      await store.begin('T-1:abc', STALE);
+      await store.begin('T-1:abc');
       await expect(store.open(review({ threadId: 'thread-3' }))).rejects.toThrow();
       expect(await store.find('T-1:abc')).toMatchObject({ status: 'deciding', threadId: 'thread-1' });
     });
   });
 
   describe('deciding', () => {
-    it('hands a review to exactly one of many callers, with a token', async () => {
-      const { store } = await setup();
+    it('hands a review to exactly one of many callers', async () => {
+      const store = await reviews();
       await store.open(review());
-      const leases = await Promise.all(Array.from({ length: 10 }, () => store.begin('T-1:abc', STALE)));
-      expect(leases.filter(Boolean)).toHaveLength(1);
-      expect(leases.find(Boolean)).toMatchObject({
-        review: { status: 'deciding', threadId: 'thread-1' },
-        token: expect.any(String),
-      });
+      const winners = await Promise.all(Array.from({ length: 10 }, () => store.begin('T-1:abc')));
+      expect(winners.filter(Boolean)).toHaveLength(1);
+      expect(winners.find(Boolean)).toMatchObject({ status: 'deciding', threadId: 'thread-1' });
       expect(await store.list()).toEqual([]); // being decided is no longer waiting
     });
 
-    it('puts a review back with the token, and closes it for good when it is resolved', async () => {
-      const { store } = await setup();
+    it('puts a review back, and closes it for good when it is resolved', async () => {
+      const store = await reviews();
       await store.open(review());
-      const first = (await store.begin('T-1:abc', STALE))!;
-      await store.release('T-1:abc', first.token);
+      await store.begin('T-1:abc');
+      await store.release('T-1:abc');
       expect((await store.find('T-1:abc'))?.status).toBe('pending');
 
-      const second = (await store.begin('T-1:abc', STALE))!;
-      expect(await store.resolve('T-1:abc', second.token, answer)).toBe(true);
+      await store.begin('T-1:abc');
+      await store.resolve('T-1:abc', answer, finalDenial);
       expect(await store.find('T-1:abc')).toMatchObject({ status: 'resolved' });
-      expect(await store.begin('T-1:abc', STALE)).toBeUndefined();
+      expect(await store.begin('T-1:abc')).toBeUndefined();
     });
 
-    it('does not let a wrong token release or resolve it', async () => {
-      const { store } = await setup();
+    it('keeps the answer that was applied and the final result, once resolved, and only then', async () => {
+      const store = await reviews();
       await store.open(review());
-      await store.begin('T-1:abc', STALE);
-      await store.release('T-1:abc', 'someone-else');
-      expect(await store.resolve('T-1:abc', 'someone-else', answer)).toBe(false);
-      expect((await store.find('T-1:abc'))?.status).toBe('deciding');
+      const waiting = await store.find('T-1:abc');
+      expect([waiting?.status, waiting?.answer, waiting?.finalResult]).toEqual(['pending', undefined, undefined]);
+
+      await store.begin('T-1:abc');
+      await store.resolve('T-1:abc', answer, finalDenial);
+      expect(await store.find('T-1:abc')).toMatchObject({
+        status: 'resolved',
+        answer: { action: 'deny', reviewer: 'Maria', note: 'no' },
+        finalResult: { decision: 'deny', review: { status: 'denied' } },
+      });
+    });
+
+    it('forgets the old answer when the same ticket comes back and a new review is opened', async () => {
+      const store = await reviews();
+      await store.open(review());
+      await store.begin('T-1:abc');
+      await store.resolve('T-1:abc', answer, finalDenial);
+      await store.open(review({ threadId: 'thread-2' }));
+      const reopened = await store.find('T-1:abc');
+      expect([reopened?.status, reopened?.answer, reopened?.finalResult]).toEqual(['pending', undefined, undefined]);
+    });
+
+    it('does not release or resolve a review that nobody is deciding', async () => {
+      const store = await reviews();
+      await store.open(review());
+      await store.release('T-1:abc');
+      await store.resolve('T-1:abc', answer, finalDenial);
+      expect((await store.find('T-1:abc'))?.status).toBe('pending');
     });
   });
 
-  describe('when the decider has died', () => {
-    it('keeps a review that is merely slow: a decision younger than the limit is not taken over', async () => {
-      const { store, database } = await setup();
+  describe('recover (at startup, after a process died mid-answer)', () => {
+    it('puts every review left "deciding" back to waiting, and counts them', async () => {
+      const store = await reviews();
       await store.open(review());
-      await store.begin('T-1:abc', STALE);
-      await backdateReview(database, 'T-1:abc', STALE - 20_000);
-      expect(await store.begin('T-1:abc', STALE)).toBeUndefined();
+      await store.open(review({ reviewId: 'T-2:abc', ticketId: 'T-2' }));
+      await store.open(review({ reviewId: 'T-3:abc', ticketId: 'T-3' }));
+      await store.begin('T-1:abc');
+      await store.begin('T-2:abc');
+      await store.resolve('T-2:abc', answer, finalDenial);
+
+      expect(await store.recover()).toBe(1); // only T-1 was left mid-answer
+      expect((await store.find('T-1:abc'))?.status).toBe('pending');
+      expect((await store.find('T-2:abc'))?.status).toBe('resolved'); // answered ones stay answered
+      expect((await store.begin('T-1:abc'))?.status).toBe('deciding'); // and it can be answered again
     });
 
-    it('hands it to one new decider once it is older than the limit', async () => {
-      const { store, database } = await setup();
+    it('does nothing when nothing is stuck', async () => {
+      const store = await reviews();
       await store.open(review());
-      const dead = (await store.begin('T-1:abc', STALE))!;
-      await backdateReview(database, 'T-1:abc', STALE + 20_000);
+      expect(await store.recover()).toBe(0);
+    });
+  });
 
-      const successor = (await store.begin('T-1:abc', STALE))!;
-      expect(successor.token).not.toBe(dead.token);
-      expect(successor.review.status).toBe('deciding');
-      expect(await store.begin('T-1:abc', STALE)).toBeUndefined(); // the clock restarted for the new decider
+  describe('deniedFor (what a reviewer should know before answering another ticket about the same order)', () => {
+    type Handle = Awaited<ReturnType<typeof withDatabase>>;
+    /** An answered review. `daysAgo` sets when, since the database stamps whole seconds. */
+    async function answered(
+      { store, database }: Handle,
+      id: string,
+      order: string,
+      decision: 'deny' | 'approve',
+      daysAgo = 0,
+    ) {
+      await store.open(review({ reviewId: `${id}:abc`, ticketId: id, orderId: order }));
+      await store.begin(`${id}:abc`);
+      await store.resolve(`${id}:abc`, { action: decision, reviewer: `rev-${id}`, note: `note ${id}` }, finalDenial);
+      const at = new Date(Date.now() - daysAgo * 86_400_000).toISOString().slice(0, 19).replace('T', ' ');
+      await database('pending_reviews')
+        .where({ review_id: `${id}:abc` })
+        .update({ resolved_at: at });
+    }
+
+    it('lists the earlier denials of that order, newest first, with who said it and why', async () => {
+      const handle = await withDatabase();
+      await answered(handle, 'T-1', 'ORD-1', 'deny', 5);
+      await answered(handle, 'T-2', 'ORD-1', 'deny', 1);
+      const denials = await handle.store.deniedFor('ORD-1', 'T-3:abc');
+      expect(denials.map((denial) => denial.ticketId)).toEqual(['T-2', 'T-1']);
+      expect(denials[0]).toMatchObject({ reviewer: 'rev-T-2', note: 'note T-2', decidedAt: expect.any(Date) });
     });
 
-    it('locks the dead decider out: if it comes back it can neither record nor release anything', async () => {
-      const { store, database } = await setup();
-      await store.open(review());
-      const dead = (await store.begin('T-1:abc', STALE))!;
-      await backdateReview(database, 'T-1:abc', STALE + 20_000);
-      const successor = (await store.begin('T-1:abc', STALE))!;
-
-      expect(await store.resolve('T-1:abc', dead.token, answer)).toBe(false);
-      await store.release('T-1:abc', dead.token); // does not put it back under the successor
-      expect((await store.find('T-1:abc'))?.status).toBe('deciding');
-      expect(await store.resolve('T-1:abc', successor.token, answer)).toBe(true);
+    it('leaves out approvals, other orders, reviews still waiting, and the review being opened', async () => {
+      const handle = await withDatabase();
+      await answered(handle, 'T-1', 'ORD-1', 'approve');
+      await answered(handle, 'T-2', 'ORD-2', 'deny');
+      await handle.store.open(review({ reviewId: 'T-3:abc', ticketId: 'T-3', orderId: 'ORD-1' })); // waiting
+      await answered(handle, 'T-4', 'ORD-1', 'deny');
+      expect((await handle.store.deniedFor('ORD-1', 'T-4:abc')).map((denial) => denial.ticketId)).toEqual([]);
+      expect((await handle.store.deniedFor('ORD-1', 'T-9:abc')).map((denial) => denial.ticketId)).toEqual(['T-4']);
     });
 
-    it('lets exactly one of several callers take it over', async () => {
-      const { store, database } = await setup();
-      await store.open(review());
-      await store.begin('T-1:abc', STALE);
-      await backdateReview(database, 'T-1:abc', STALE + 20_000);
-      const leases = await Promise.all(Array.from({ length: 10 }, () => store.begin('T-1:abc', STALE)));
-      expect(leases.filter(Boolean)).toHaveLength(1);
-    });
-
-    it('never takes over a review that is waiting or already answered', async () => {
-      const { store, database } = await setup();
-      await store.open(review());
-      await backdateReview(database, 'T-1:abc', STALE * 10); // no decider, so nothing to take over: it is just waiting
-      expect((await store.begin('T-1:abc', STALE))?.review.status).toBe('deciding');
-
-      const { store: other } = await setup();
-      await other.open(review());
-      const lease = (await other.begin('T-1:abc', STALE))!;
-      await other.resolve('T-1:abc', lease.token, answer);
-      expect(await other.begin('T-1:abc', 0)).toBeUndefined();
+    it('shows at most five', async () => {
+      const handle = await withDatabase();
+      for (const id of ['T-1', 'T-2', 'T-3', 'T-4', 'T-5', 'T-6', 'T-7']) await answered(handle, id, 'ORD-1', 'deny');
+      expect(await handle.store.deniedFor('ORD-1', 'T-9:abc')).toHaveLength(5);
     });
   });
 });

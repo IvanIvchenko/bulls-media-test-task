@@ -1,6 +1,5 @@
 import type { FastifyInstance } from 'fastify';
 
-import { IDEMPOTENT_REPLAY_HEADER } from './constants.js';
 import type { TicketsService } from './tickets.service.js';
 import { FLAG, type Result } from '../domain/index.js';
 import { HttpStatus } from '../shared/http-status.js';
@@ -11,9 +10,8 @@ export class TicketsController implements Controller {
 
   public register(app: FastifyInstance): void {
     app.post('/tickets', async (request, reply) => {
-      const outcome = await this.service.process(request.body);
-      if (outcome.kind === 'replayed') reply.header(IDEMPOTENT_REPLAY_HEADER, 'true');
-      return reply.status(this.statusFor(outcome.result)).send(outcome.result);
+      const result = await this.service.process(request.body);
+      return reply.status(this.statusFor(result)).send(result);
     });
   }
 

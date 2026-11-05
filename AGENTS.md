@@ -18,15 +18,15 @@ Mostly enforced by `test/architecture.spec.ts`, eslint and prettier.
 - No barrel `index.ts` except `domain/`.
 - Class order: logger (`new Logger(X.name)`), constructor with `private readonly` dependencies, public methods, private methods.
 - Services hold logic, repositories hold SQL only, mappers turn rows into domain objects.
-- Storage is slow, remote and shared by several processes: every port returns a `Promise`, the policy is read once per ticket (`load_policies`), and anything that decides correctness (idempotency, refunds) lives in the database, never in process memory.
+- Storage is slow and remote: every port returns a `Promise`, the policy is read once per ticket (`load_policies`), and anything that decides correctness (refunds, reviews) lives in the database, never in process memory. The service is single-instance by design: no locks, no claims, no takeover; a ticket sent twice is run twice and the refund guard keeps the money safe.
 - Data access is Knex, never raw SQL strings, and stays dialect-neutral (no `PRAGMA`, no driver types outside `db/`). Schema changes are a new file in `db/migrations/` added to `migrations.ts`; never edit one that has shipped. Keep one SQLite connection per process.
 - Layers point inward: `domain` <- features <- `agent` <- entry points. The agent, tickets and health see storage only through `domain/ports.ts`. Concrete classes are wired in `container.ts` only.
-- Errors: throw `BusinessLogicError` with an `ErrorCodes` entry, never a raw `Error`, `TypeError` or `RangeError`. The architecture spec lists the two places that may (layers that cannot import `shared/`), each with a reason. `ErrorFilter` turns errors into `{ code, message }`.
+- Errors: throw `BusinessLogicError` with an `ErrorCodes` entry, never a raw `Error`, `TypeError` or `RangeError`. The architecture spec lists the one place that may (a layer that cannot import `shared/`), with its reason. `ErrorFilter` turns errors into `{ code, message }`.
 - Config: add the key to `config/configuration.ts` and read it through `ConfigService`. No `process.env` in services.
 - Constants are `SCREAMING_SNAKE`. Zod schemas are `nameSchema` with the inferred type beside them. Flags and step names come from `FLAG` and `STEP`.
-- Nodes read earlier state through `needs(state, ...fields)`, which throws `AGENT_STATE_INVARIANT` if run out of order; never use `!`. Idempotency is keyed by ticket id + sender email (`claimIdentity`).
-- Claim ages come from the database clock (`now()`), never an instance's; tests age a claim with `backdateClaim`. Money goes through `roundMoney`.
-- Tests that need delays use a seeded generator, never `Math.random`/wall-clock thresholds. Multi-instance behaviour is tested with OS processes: two SQLite connections in one process deadlock.
+- Nodes read earlier state through `needs(state, ...fields)`, which throws `AGENT_STATE_INVARIANT` if run out of order; never use `!`. A human review is filed under `reviewKeyOf` (ticket id + sender digest).
+- Money goes through `roundMoney`.
+- Tests that need delays use a seeded generator, never `Math.random`/wall-clock thresholds. The service runs as one instance: do not add code (or tests) that assumes two processes share a file.
 - Decisions carry two lists: `reasons` are for the reviewer (third person, internal limits allowed), `facts` are written to the customer and are all the reply model or template sees. Never copy one into the other.
 - Human review: the agent pauses with `interrupt()` only when `run` is given a `reviewId` (the HTTP service with `REVIEW_TOKEN`). The reviewer's answer is yes or no; code sets the amount. A paused run is saved by `KnexCheckpointSaver` (db/), only for the review graph, and deleted once answered; never keep a run in memory.
 - Prettier: single quotes, trailing commas, width 120. Imports are ordered by eslint (`import-x/order`).
@@ -34,7 +34,7 @@ Mostly enforced by `test/architecture.spec.ts`, eslint and prettier.
 
 ## Commands
 
-`npm run check` (typecheck, lint, format, tests), `npm run samples`, `npm run serve`, `npm run db:prune -- --days N`.
+`npm run check` (typecheck, lint, format, tests), `npm run samples`, `npm run serve`.
 
 ## Agent Rules
 

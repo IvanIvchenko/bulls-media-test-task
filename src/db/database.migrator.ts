@@ -3,8 +3,8 @@ import { MIGRATIONS } from './migrations/migrations.js';
 import type { Transaction } from './typedef.js';
 
 /**
- * Apply every migration that has not run yet, in order. Call it inside `withInitLock`, which is what keeps two
- * instances from migrating at once.
+ * Apply every migration that has not run yet, in order. Call it inside a transaction, so a failed migration leaves
+ * nothing half done.
  */
 export async function migrate(trx: Transaction): Promise<string[]> {
   if (!(await trx.schema.hasTable(MIGRATIONS_TABLE))) {

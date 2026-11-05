@@ -2,7 +2,6 @@
 export const SQLITE_BUSY_TIMEOUT_MS = 5_000;
 
 export const MIGRATIONS_TABLE = 'schema_migrations';
-export const INIT_LOCK_TABLE = 'app_init_lock';
 
 export const SQLITE_MEMORY = ':memory:';
 
@@ -11,7 +10,6 @@ export const TABLE = {
   ORDERS: 'orders',
   REFUNDS: 'refunds',
   DECISIONS: 'decisions',
-  TICKET_CLAIMS: 'ticket_claims',
   POLICY_RULES: 'policy_rules',
   POLICY_SETTINGS: 'policy_settings',
   CATEGORY_RULES: 'category_rules',

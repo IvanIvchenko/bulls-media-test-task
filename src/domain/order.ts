@@ -14,6 +14,8 @@ export const orderSchema = z.object({
   trackingNote: z.string().optional(),
   /** The ticket whose approved refund marked this order refunded, if any. */
   refundedByTicket: z.string().optional(),
+  /** What that refund paid, from the refund record. */
+  refundedAmount: z.number().optional(),
 });
 export type Order = z.infer<typeof orderSchema>;
 
@@ -29,3 +31,11 @@ export const orderIdsIn = (text: string): string[] =>
 
 /** The text with every order id blanked out, e.g. so their digits are not read as amounts. */
 export const withoutOrderIds = (text: string): string => text.replace(ORDER_ID_IN_TEXT, ' ');
+
+/**
+ * Whether this very ticket already got the order's refund. A ticket sent twice, or retried after a crash lost its
+ * answer, is then answered with that refund again: nothing is paid a second time, and nothing is asked of a model or
+ * a reviewer again.
+ */
+export const refundedBy = (order: Order | undefined, ticketId: string | undefined): boolean =>
+  order !== undefined && order.refunded && ticketId !== undefined && order.refundedByTicket === ticketId;

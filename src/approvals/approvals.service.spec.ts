@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { ApprovalsService } from './approvals.service.js';
-import { backdateReview, createTestContainer } from '../../test/support/helpers.js';
+import { createTestContainer } from '../../test/support/helpers.js';
 import type { NewReview, Result, ResumedReview } from '../domain/index.js';
 
 const pendingResult: Result = {
@@ -26,38 +26,35 @@ const approvedBy = (reviewer: string, note?: string): Result => ({
   review: { status: 'approved', reviewer, note },
 });
 const finalResult = approvedBy('Maria');
-const review: NewReview = { reviewId: 'T-1:abc', ticketId: 'T-1', threadId: 'thread', request: pendingResult };
+const review: NewReview = {
+  reviewId: 'T-1:abc',
+  ticketId: 'T-1',
+  orderId: 'ORD-1',
+  threadId: 'thread',
+  request: pendingResult,
+};
 const approve = { action: 'approve', reviewer: 'Maria' };
-
-const STALE = 60_000;
 
 const resumed = (result: Result, consumed = true): ResumedReview => ({ result, consumed });
 
 async function setup(resume = vi.fn(async (): Promise<ResumedReview> => resumed(finalResult))) {
   const container = await createTestContainer();
-  const token = await container.claims.tryClaim('T-1:abc', 'hash');
-  await container.claims.complete('T-1:abc', token!, pendingResult);
   await container.reviews.open(review);
   const discard = vi.fn(async () => undefined);
-  return {
-    container,
-    resume,
-    discard,
-    service: new ApprovalsService(container.reviews, container.claims, { resume, discard }, STALE),
-  };
+  return { container, resume, discard, service: new ApprovalsService(container.reviews, { resume, discard }) };
 }
 const recorded = async (container: Awaited<ReturnType<typeof setup>>['container']) =>
   container.database('pending_reviews').where({ review_id: 'T-1:abc' }).first('status', 'decision', 'reviewer', 'note');
 
 describe('ApprovalsService.decide', () => {
-  it('resumes the run, replaces the ticket’s stored decision, closes the review and forgets the saved run', async () => {
+  it('resumes the run, closes the review and forgets the saved run', async () => {
     const { container, resume, discard, service } = await setup();
     expect(await service.decide('T-1:abc', approve)).toEqual(finalResult);
 
     expect(resume).toHaveBeenCalledWith(expect.objectContaining({ threadId: 'thread' }), approve);
-    expect((await container.claims.find('T-1:abc'))?.result?.decision).toBe('approve');
     expect(await container.reviews.list()).toEqual([]);
     expect(await recorded(container)).toMatchObject({ status: 'resolved', decision: 'approve', reviewer: 'Maria' });
+    expect((await container.reviews.find('T-1:abc'))?.finalResult).toEqual(finalResult); // kept, so a denial can be replayed
     expect(discard).toHaveBeenCalledWith(expect.objectContaining({ threadId: 'thread' }));
   });
 
@@ -66,13 +63,12 @@ describe('ApprovalsService.decide', () => {
     await expect(service.decide('T-1:abc', approve)).rejects.toThrow('model down');
 
     expect((await container.reviews.find('T-1:abc'))?.status).toBe('pending');
-    expect((await container.claims.find('T-1:abc'))?.result?.decision).toBe('escalate'); // nothing was replaced
     expect(discard).not.toHaveBeenCalled();
   });
 
   it('puts the review back, with the saved run kept, if recording the answer fails after the run finished', async () => {
     const { container, discard, service } = await setup();
-    vi.spyOn(container.claims, 'replaceResult').mockRejectedValueOnce(new Error('database unavailable'));
+    vi.spyOn(container.reviews, 'resolve').mockRejectedValueOnce(new Error('database unavailable'));
     await expect(service.decide('T-1:abc', approve)).rejects.toThrow('database unavailable');
 
     expect((await container.reviews.find('T-1:abc'))?.status).toBe('pending');
@@ -97,7 +93,6 @@ describe('ApprovalsService.decide', () => {
         reviewer: 'Maria',
         note: 'phoned us',
       });
-      expect((await container.claims.find('T-1:abc'))?.result).toMatchObject({ decision: 'approve' }); // what happened
       expect(discard).toHaveBeenCalled();
     });
 
@@ -125,13 +120,6 @@ describe('ApprovalsService.decide', () => {
     expect(resume).toHaveBeenCalledTimes(1);
   });
 
-  it('still records the answer when the ticket’s claim has already been pruned', async () => {
-    const { container, service } = await setup();
-    await container.database('ticket_claims').del();
-    await expect(service.decide('T-1:abc', approve)).resolves.toEqual(finalResult);
-    expect((await container.reviews.find('T-1:abc'))?.status).toBe('resolved');
-  });
-
   it('does not fail an answered review because the saved run could not be deleted', async () => {
     const { container, discard, service } = await setup();
     discard.mockRejectedValueOnce(new Error('cleanup failed'));
@@ -139,35 +127,13 @@ describe('ApprovalsService.decide', () => {
     expect((await container.reviews.find('T-1:abc'))?.status).toBe('resolved');
   });
 
-  describe('a review stuck in "deciding" because its decider died', () => {
-    it('is taken over by the next answer once the decider has been at it too long, and answered once', async () => {
-      const { container, resume, service } = await setup();
-      await container.reviews.begin('T-1:abc', STALE); // a decider that then crashed, never recording
-      await expect(service.decide('T-1:abc', approve)).rejects.toMatchObject({ code: 'REVIEW_NOT_PENDING' }); // too soon
-
-      await backdateReview(container.database, 'T-1:abc', STALE + 20_000);
-      await expect(service.decide('T-1:abc', approve)).resolves.toEqual(finalResult);
-      expect(resume).toHaveBeenCalledTimes(1);
-      expect(await recorded(container)).toMatchObject({ status: 'resolved', decision: 'approve', reviewer: 'Maria' });
-    });
-
-    it('does not let a decider that was taken over record its answer when it finally finishes', async () => {
-      // The slow call is still running when its review is taken over and answered by someone else.
-      const held: { database?: Awaited<ReturnType<typeof setup>>['container']['database'] } = {};
-      const slow = vi.fn(async () => {
-        const database = held.database!;
-        await backdateReview(database, 'T-1:abc', STALE + 20_000);
-        const successor = await prepared.container.reviews.begin('T-1:abc', STALE);
-        await prepared.container.reviews.resolve('T-1:abc', successor!.token, { action: 'deny', reviewer: 'Boris' });
-        return resumed(finalResult); // the slow decider carries on and finishes, too late
-      });
-      const prepared = await setup(slow);
-      held.database = prepared.container.database;
-      const container = prepared.container;
-
-      await expect(prepared.service.decide('T-1:abc', approve)).rejects.toMatchObject({ code: 'REVIEW_NOT_PENDING' });
-      expect(await recorded(container)).toMatchObject({ status: 'resolved', decision: 'deny', reviewer: 'Boris' });
-      expect(prepared.discard).not.toHaveBeenCalled();
-    });
+  it('lets only one of two simultaneous answers resume the run', async () => {
+    const { service, resume } = await setup();
+    const outcomes = await Promise.allSettled([
+      service.decide('T-1:abc', approve),
+      service.decide('T-1:abc', { action: 'deny', reviewer: 'Boris' }),
+    ]);
+    expect(outcomes.filter((outcome) => outcome.status === 'fulfilled')).toHaveLength(1);
+    expect(resume).toHaveBeenCalledTimes(1);
   });
 });

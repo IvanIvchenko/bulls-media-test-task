@@ -72,8 +72,8 @@ src/
   domain/      pure core, no I/O: schemas, eligibility, decision policy, reply templates, ports
   guardrails/  input validation, injection scoring, PII masking, reply guard
   llm/         Claude, deterministic mock, prompts
-  orders/ policies/ audit/ claims/   storage behind the interfaces in domain/ports.ts
-  tickets/ health/ db/ retention/ config/ shared/ cli/   HTTP service and plumbing (see docs/operations.md)
+  orders/ policies/ audit/ reviews/   storage behind the interfaces in domain/ports.ts
+  tickets/ approvals/ health/ db/ config/ shared/ cli/   HTTP service and plumbing (see docs/operations.md)
 test/          e2e and architecture specs; unit specs sit beside the code (*.spec.ts)
 samples/       15 tickets with expected decisions
 ```
@@ -95,7 +95,7 @@ Dependencies point inward and the agent sees storage only through interfaces, so
 - Replies are checked (English only; every number must come from the decided facts or refund amount; no money promises unless approved; no URLs, emails, domains or foreign order ids) and fall back to a template.
 - Escalations a person can settle can pause for a human (`interrupt()`, off unless `REVIEW_TOKEN` is set): the reviewer says yes or no, never the amount, and the refund goes through the same guarded step. See [docs/operations.md](docs/operations.md).
 - A recorded delivery date in the future escalates. If the store refuses a refund the agent already approved, the whole decision, reasons and reply become a denial.
-- Refunds are atomic and idempotent; PII is masked in logs and traces.
+- Refunds are atomic and guarded in the database (one per order); a ticket that already got its refund is answered with it again. PII is masked in logs and traces.
 
 **Observability.** Every step is a structured log line and a trace entry with its duration. Each model call also records what it cost, as tokens (not money: prices change, and tokens convert to cost anywhere):
 
@@ -105,7 +105,7 @@ Dependencies point inward and the agent sees storage only through interfaces, so
 
 There is no tracing export (OpenTelemetry or LangSmith) yet.
 
-**Escalations** carry a `handoff` for the reviewer: why the agent stopped, the cited rule text, and any other rules the keyword search found relevant.
+**Escalations** carry a `handoff` for the reviewer: why the agent stopped, the cited rule text, any other rules the keyword search found relevant, and, if a reviewer already said no to another ticket about the same order, that.
 
 ## 5. Setup
 
@@ -121,7 +121,7 @@ cp .env.example .env     # optional: add ANTHROPIC_API_KEY to use real Claude
 | `LLM_TIMEOUT_MS`    | `20000` (`LLM_MAX_RETRIES` defaults to `2`) |
 | `LOG_LEVEL`         | `info`                                      |
 
-Configuration is validated at startup. The other variables (database, HTTP, claims, production defaults) and the HTTP service and Docker are in [docs/operations.md](docs/operations.md).
+Configuration is validated at startup. The other variables (database, HTTP, production defaults) and the HTTP service and Docker are in [docs/operations.md](docs/operations.md).
 
 ```bash
 npm start -- --file samples/01-refund-approved.json [--json]   # one ticket
@@ -139,7 +139,6 @@ npm run test:live        # optional, needs ANTHROPIC_API_KEY: real-model tests
 - **Unit specs** beside the code: eligibility boundaries, decision policy, each graph node against fake ports, the Claude client against a fake SDK client, prompts (and that the tool schema matches the validation schema), guardrails, reply templates (the fallback must pass the reply guard), retry rules, config.
 - **E2E specs** (`test/e2e`): every sample through the graph and over HTTP, failure modes (hostile or failing model, conflicting ids, no order enumeration), database-driven behaviour, handoff, privacy, the CLI.
 - **Architecture spec**: layer rules, package allowlist per layer, naming and error conventions.
-- **Concurrency specs** (slow database, several real processes on one database file) are described in [docs/operations.md](docs/operations.md).
 
 Manual: run any sample with `npm start -- --file samples/NN-....json --json`, or write your own ticket (`ticketId`, `customerEmail`, `orderId`, `subject`, `body`) and pass it to `--file`. Demo customers are in `data/seed/orders.json`.
 
@@ -203,16 +202,17 @@ An injection attempt (sample 08) gives `escalate` with flag `prompt_injection_su
 
 - **The real-Claude path has not been run end to end.** The mock model is keyword-based, so tests prove the pipeline and guardrails, not model quality.
 - It is a workflow with two model calls, not an open-ended agent: the model never chooses tools or decides money. That is deliberate, and it is why a fooled model cannot approve a refund.
-- Human review is minimal: one shared token, no reviewer accounts, no notifications and no expiry. Paused runs are saved by a small Knex checkpointer, not LangGraph's ready-made ones (see [docs/operations.md](docs/operations.md)).
+- Human review is minimal: one shared token, no reviewer accounts, no notifications and no expiry. A reviewer's "no" is replayed for the same ticket and sender; a customer who opens a new ticket for the same order gets a new review, with the earlier denials shown in its handoff so the second reviewer decides knowing. The agent does not block it: whether a new ticket is a new case is a support-process question. Paused runs are saved by a small Knex checkpointer, not LangGraph's ready-made ones (see [docs/operations.md](docs/operations.md)).
 - Rules in the database are safe and change without a deploy, but a bad row is a bad policy: it needs access control, and required rows are validated at startup.
 - Injection scoring is defence in depth and can be bypassed, which is why the model has no authority to approve. Some benign tickets may escalate: a deliberate bias toward safety.
 - Reply checks and injection scoring are English-only regexes. A draft in another language is rejected and the English template is sent; an injection in another language is not scored (the fence, the quote check and the code-made decision still apply).
 - The refund-request quote is checked for existing in the ticket, not for meaning.
 - Policy search is keyword ranking, deterministic and offline. It cannot match paraphrases; embeddings would.
 - Orders are sample data: no real payment, email or ticketing integration. No memory across tickets. The order id (`ORD-1001`) is also the primary key of `orders`, and `refunds` points at it. In production the shop or ERP owns order ids and their format changes over time, so the table would get its own surrogate key plus a unique public order number. The format itself is defined once (`ORDER_ID_PATTERN` in `src/domain/constants.ts`), and a test fails if a second copy appears.
-- SQLite storage, claim handling and the HTTP service have their own limits: see [docs/operations.md](docs/operations.md).
+- **Single instance.** The service is built to run as one process on one SQLite file: no locks, no ticket claims, no takeover. A ticket sent twice is simply run twice (another model call and audit row, and the wording can differ). Money stays safe because the refund is guarded in the database (one per order, and a ticket that already got its refund is answered with it again). See [docs/operations.md](docs/operations.md).
+- Nothing is pruned: the audit trail, reviews and refunds only grow.
 
-Next: reviewer accounts, notifications and expiry for the review queue (today: one shared token, polling, no timeout), real integrations, an LLM eval set, tracing export (OpenTelemetry), authentication and rate limiting, a networked SQL database.
+Next: reviewer accounts, notifications and expiry for the review queue (today: one shared token, polling, no timeout), idempotency and locking for several instances, retention, real integrations, an LLM eval set, tracing export (OpenTelemetry), authentication and rate limiting, a networked SQL database.
 
 ## 9. Real-world usage
 

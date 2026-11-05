@@ -2,20 +2,10 @@ import { AgentService } from './agent/agent.service.js';
 import { ApprovalsService } from './approvals/approvals.service.js';
 import { AuditRepository } from './audit/audit.repository.js';
 import { AuditService } from './audit/audit.service.js';
-import { ClaimsMapper } from './claims/claims.mapper.js';
-import { ClaimsRepository } from './claims/claims.repository.js';
-import { ClaimsService } from './claims/claims.service.js';
 import type { ConfigService } from './config/config.service.js';
 import { KnexCheckpointSaver } from './db/knex-checkpoint.saver.js';
 import type { Database } from './db/typedef.js';
-import {
-  RULE,
-  type AuditTrail,
-  type OrderTools,
-  type PolicyTools,
-  type ReviewStore,
-  type TicketClaims,
-} from './domain/index.js';
+import { RULE, type AuditTrail, type OrderTools, type PolicyTools, type ReviewStore } from './domain/index.js';
 import { HealthService } from './health/health.service.js';
 import { createLlm } from './llm/llm.factory.js';
 import type { LLM } from './llm/typedef.js';
@@ -35,7 +25,6 @@ export interface Ports {
   orders: OrderTools;
   policies: PolicyTools;
   audit: AuditTrail;
-  claims: TicketClaims;
   reviews: ReviewStore;
 }
 
@@ -70,7 +59,6 @@ export function createPorts(database: Database): Ports & { policies: PoliciesSer
     orders: new OrdersService(new OrdersRepository(database), new OrdersMapper()),
     policies: new PoliciesService(new PoliciesRepository(database), new PoliciesMapper()),
     audit: new AuditService(new AuditRepository(database)),
-    claims: new ClaimsService(new ClaimsRepository(database), new ClaimsMapper()),
     reviews: new ReviewsService(new ReviewsRepository(database), new ReviewsMapper()),
   };
 }
@@ -83,13 +71,7 @@ export function createContainer(options: ContainerOptions): Container {
   const ports: Ports = { ...defaults, ...options.ports };
 
   const agent = new AgentService({ llm, ...ports, checkpointer: new KnexCheckpointSaver(database), now });
-  const tickets = new TicketsService(ports.claims, agent, {
-    staleAfterMs: config.get('CLAIM_STALE_AFTER_MS'),
-    waitMs: config.get('CLAIM_WAIT_MS'),
-    pollMs: config.get('CLAIM_POLL_MS'),
-    reviewsEnabled: Boolean(config.get('REVIEW_TOKEN')),
-    monotonicMs: () => performance.now(),
-  });
+  const tickets = new TicketsService(agent, { reviewsEnabled: Boolean(config.get('REVIEW_TOKEN')) });
   const health = new HealthService(async () => void (await database.raw('select 1')), llm.name);
 
   return {
@@ -99,9 +81,7 @@ export function createContainer(options: ContainerOptions): Container {
     ...ports,
     agent,
     tickets,
-    approvals: config.get('REVIEW_TOKEN')
-      ? new ApprovalsService(ports.reviews, ports.claims, agent, config.get('REVIEW_STALE_AFTER_MS'))
-      : undefined,
+    approvals: config.get('REVIEW_TOKEN') ? new ApprovalsService(ports.reviews, agent) : undefined,
     health,
     // Always checks the real database, even when a test swaps a port for a fake.
     verify: () => defaults.policies.assertRulesExist(Object.values(RULE)),

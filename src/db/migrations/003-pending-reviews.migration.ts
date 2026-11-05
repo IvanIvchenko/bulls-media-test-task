@@ -24,17 +24,18 @@ async function createPendingReviews(database: Handle): Promise<void> {
   await database.schema.createTable('pending_reviews', (t) => {
     t.string('review_id').primary();
     t.string('ticket_id').notNullable();
+    t.string('order_id').notNullable();
     t.string('thread_id').notNullable();
     t.string('status').notNullable();
     t.text('request_json').notNullable();
+    t.text('final_json');
     t.timestamp('created_at', { useTz: true }).notNullable().defaultTo(database.fn.now());
     t.timestamp('resolved_at', { useTz: true });
-    t.string('decider_token');
-    t.timestamp('deciding_since', { useTz: true });
     t.string('decision');
     t.string('reviewer');
     t.text('note');
     t.index(['status'], 'idx_pending_reviews_status');
+    t.index(['order_id'], 'idx_pending_reviews_order');
     t.check(
       `?? in (${REVIEW_STATUSES.map(() => '?').join(', ')})`,
       ['status', ...REVIEW_STATUSES],

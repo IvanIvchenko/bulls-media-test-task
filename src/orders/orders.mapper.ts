@@ -14,6 +14,7 @@ export class OrdersMapper {
       refunded: Boolean(row.refunded),
       trackingNote: row.tracking_note ?? undefined,
       refundedByTicket: row.refunded_by_ticket ?? undefined,
+      refundedAmount: row.refunded_amount ? roundMoney(Number(row.refunded_amount)) : undefined,
     });
   }
 }

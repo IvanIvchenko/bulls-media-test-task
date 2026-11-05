@@ -33,6 +33,18 @@ describe('agent behaviour', () => {
     expect((await run({ ticketId: 'bad id!!' })).usage.llmCalls).toBe(0);
   });
 
+  it('answers a ticket run twice with the refund it already got, asking no model and paying nothing again', async () => {
+    const container = await createTestContainer();
+    const first = await run(ticket(), container);
+    const again = await run(ticket(), container);
+
+    expect(first).toMatchObject({ decision: 'approve', refundAmount: 59.9 });
+    expect(again).toMatchObject({ decision: 'approve', refundAmount: 59.9, policyCitations: [] });
+    expect(again.reasons.join(' ')).toMatch(/already recorded/);
+    expect(again.trace.map((entry) => entry.step)).not.toContain('check_eligibility'); // nothing was re-judged
+    expect(await container.database('refunds').count({ n: '*' }).first()).toEqual({ n: 1 });
+  });
+
   it('trace records tool calls in order', async () => {
     const r = await run(ticket());
     expect(r.trace.map((t) => t.step)).toEqual([

@@ -3,8 +3,6 @@ import { HttpStatus } from '../http-status.js';
 export const ErrorCodes = {
   INVALID_REQUEST: { code: 'INVALID_REQUEST', status: HttpStatus.BAD_REQUEST },
   AGENT_STATE_INVARIANT: { code: 'AGENT_STATE_INVARIANT', status: HttpStatus.INTERNAL_SERVER_ERROR },
-  TICKET_ID_CONFLICT: { code: 'TICKET_ID_CONFLICT', status: HttpStatus.CONFLICT },
-  TICKET_IN_PROGRESS: { code: 'TICKET_IN_PROGRESS', status: HttpStatus.CONFLICT },
   LLM_BAD_RESPONSE: { code: 'LLM_BAD_RESPONSE', status: HttpStatus.BAD_GATEWAY },
   SERVICE_UNAVAILABLE: { code: 'SERVICE_UNAVAILABLE', status: HttpStatus.SERVICE_UNAVAILABLE },
   POLICY_RULE_MISSING: { code: 'POLICY_RULE_MISSING', status: HttpStatus.INTERNAL_SERVER_ERROR },

@@ -47,13 +47,10 @@ export class GatherNode implements AgentNode {
     if (!lookupResult.found) {
       return { orderId, lookup: lookupResult.reason, relatedPolicies, flags, trace: [...searched, ...looked] };
     }
-    // This same ticket already refunded the order (a retry after a crash lost the decision): decide it again as
-    // the first run did. recordRefund accepts the same ticket twice without paying twice.
     const { order } = lookupResult;
-    const ownRefund = order.refunded && order.refundedByTicket === ticket.ticketId;
     return {
       orderId,
-      order: ownRefund ? { ...order, refunded: false } : order,
+      order,
       lookup: 'found',
       relatedPolicies,
       flags,

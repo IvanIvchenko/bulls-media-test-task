@@ -11,4 +11,5 @@ export interface OrderRow {
   tracking_note: string | null;
   /** From the refunds table, when the order was refunded. */
   refunded_by_ticket?: string | null;
+  refunded_amount?: number | string | null;
 }

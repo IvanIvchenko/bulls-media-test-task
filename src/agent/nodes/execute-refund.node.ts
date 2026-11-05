@@ -1,4 +1,4 @@
-import { refundFailureOutcome, type OrderTools } from '../../domain/index.js';
+import { refundedBy, refundFailureOutcome, type OrderTools } from '../../domain/index.js';
 import { STEP, TOOL } from '../constants.js';
 import { needs } from '../needs.util.js';
 import { step } from '../trace.util.js';
@@ -16,6 +16,15 @@ export class ExecuteRefundNode implements AgentNode {
 
   public async execute(state: AgentState): Promise<AgentStateUpdate> {
     const { orderId, order, ticket } = needs(state, 'orderId', 'order', 'ticket');
+    if (refundedBy(order, ticket.ticketId)) {
+      return {
+        trace: step(state, {
+          step: STEP.EXECUTE_REFUND,
+          ok: true,
+          detail: `${orderId} refund already recorded for this ticket`,
+        }),
+      };
+    }
     const refund = await this.orders.recordRefund(orderId, ticket.ticketId, state.refundAmount, this.now());
     if (refund.ok) {
       return {

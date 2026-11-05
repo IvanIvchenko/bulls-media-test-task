@@ -40,42 +40,11 @@ export interface AuditTrail {
   record(result: Result, now: Date): Promise<void>;
 }
 
-/** Proof of ownership of a claim. Whoever holds the current token is the only one allowed to finish it. */
-export type ClaimToken = string;
-
-export interface ClaimRecord {
-  ticketId: string;
-  requestHash: string;
-  status: 'in_progress' | 'done';
-  ownerToken: ClaimToken;
-  /** Present once the claim is done. */
-  result?: Result;
-  /** How long ago the claim was made or last renewed, by the database's clock, so instance clocks do not matter. */
-  ageMs: number;
-}
-
-/**
- * Who is processing which ticket. The database is the referee, so the guarantee holds across processes:
- * for one ticket id, exactly one caller wins `tryClaim`.
- */
-export interface TicketClaims {
-  /** Atomically claim an unclaimed ticket. Returns the token if this caller won, undefined if it was taken. */
-  tryClaim(ticketId: string, requestHash: string): Promise<ClaimToken | undefined>;
-  find(ticketId: string): Promise<ClaimRecord | undefined>;
-  /** Take over an `in_progress` claim whose owner is presumed dead. At most one caller succeeds. */
-  takeOver(ticketId: string, expiredToken: ClaimToken): Promise<ClaimToken | undefined>;
-  /** Store the decision. Returns false if the claim was taken over in the meantime. */
-  complete(ticketId: string, token: ClaimToken, result: Result): Promise<boolean>;
-  /** Replace the stored decision of a finished claim (a human review changed it). False if there is no finished claim. */
-  replaceResult(ticketId: string, result: Result): Promise<boolean>;
-  /** Give the ticket id back (the run failed, or the request was invalid) so a retry can run. */
-  release(ticketId: string, token: ClaimToken): Promise<void>;
-}
-
 /** A run paused for a human: what the reviewer sees, and the graph thread (saved in the database) to resume. */
 export interface NewReview {
   reviewId: string;
   ticketId: string;
+  orderId: string;
   threadId: string;
   /** The escalation as the customer received it, with `review.status` pending. */
   request: Result;
@@ -83,6 +52,9 @@ export interface NewReview {
 
 export interface ReviewRecord extends NewReview {
   status: 'pending' | 'deciding' | 'resolved';
+  /** Once resolved: the answer that was applied, and the final result the customer got. */
+  answer?: ReviewAnswer;
+  finalResult?: Result;
 }
 
 export interface ReviewSummary {
@@ -90,32 +62,39 @@ export interface ReviewSummary {
   ticketId: string;
   summary: string;
   createdAt: Date;
+  /** How many earlier tickets about this order were denied by a reviewer. */
+  priorDenials: number;
 }
 
-/** Proof that a caller is the one deciding a review. A caller whose review was taken over no longer holds a valid one. */
-export type ReviewToken = string;
-
-export interface ReviewLease {
-  review: ReviewRecord;
-  token: ReviewToken;
+/** A reviewer's earlier no, on another ticket about the same order. */
+export interface PriorDenial {
+  ticketId: string;
+  reviewer: string;
+  note?: string;
+  decidedAt: Date;
 }
 
 /**
- * Paused runs waiting for a person. The database is the referee, so exactly one decision wins even across instances,
- * and a decision whose owner died does not block the review for ever: after `staleAfterMs` another caller takes over.
+ * Paused runs waiting for a person. Exactly one decision wins (a conditional update), even if two reviewers answer at
+ * the same moment. The service is meant to run as a single instance: a review whose decider died is put back to
+ * waiting when the service starts (`recover`), not taken over while it runs.
  */
 export interface ReviewStore {
-  /** Record a paused run. Replaces an earlier pending one with the same id (a run that was repeated after a crash). */
-  open(review: NewReview): Promise<void>;
+  /**
+   * Record a paused run. Replaces an earlier waiting or answered review with the same id (the same ticket came back).
+   * Returns the thread of the waiting run it replaced, if any, so the caller can delete that run's saved state.
+   */
+  open(review: NewReview): Promise<string | undefined>;
   list(): Promise<ReviewSummary[]>;
   find(reviewId: string): Promise<ReviewRecord | undefined>;
-  /**
-   * Atomically move a pending review to "deciding", or take over one whose decider has not finished for longer than
-   * `staleAfterMs` (by the database's clock). Returns a lease for exactly one caller; undefined for everyone else.
-   */
-  begin(reviewId: string, staleAfterMs: number): Promise<ReviewLease | undefined>;
-  /** Put a review back to pending (the decision could not be applied). A no-op for a token that was taken over. */
-  release(reviewId: string, token: ReviewToken): Promise<void>;
-  /** Mark it decided. False if the token was taken over in the meantime: this caller is fenced out. */
-  resolve(reviewId: string, token: ReviewToken, answer: ReviewAnswer): Promise<boolean>;
+  /** Reviews that ended in a no for this order, newest first, leaving out the review `exceptReviewId`. */
+  deniedFor(orderId: string, exceptReviewId: string): Promise<PriorDenial[]>;
+  /** Atomically move a waiting review to "deciding". Returns it for exactly one caller; undefined for everyone else. */
+  begin(reviewId: string): Promise<ReviewRecord | undefined>;
+  /** Put a review back to waiting (the answer could not be applied or recorded). */
+  release(reviewId: string): Promise<void>;
+  /** Mark it decided, keeping the answer that was applied and the final result, so a denial can be replayed. */
+  resolve(reviewId: string, answer: ReviewAnswer, result: Result): Promise<void>;
+  /** At startup: reviews left "deciding" by a process that died go back to waiting. Returns how many. */
+  recover(): Promise<number>;
 }

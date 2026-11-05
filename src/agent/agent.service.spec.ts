@@ -95,4 +95,36 @@ describe('AgentService review runs', () => {
     await container.agent.discard(record);
     expect(await container.database('graph_checkpoints').count({ n: '*' }).first()).toEqual({ n: 0 });
   });
+
+  describe('a denial after review', () => {
+    it('is returned as it was given when the ticket comes again, without running anything', async () => {
+      const { container, pending, record } = await paused();
+      const { result } = await container.agent.resume(record, deny);
+      await container.reviews.begin(record.reviewId); // the approvals service would have done this
+      await container.reviews.resolve(record.reviewId, deny, result);
+
+      const raw = ticket({ ticketId: 'T-A1', orderId: 'ORD-1002', customerEmail: 'ben@example.com' });
+      const audited = await container.database('decisions').count({ n: '*' }).first();
+      const again = await container.agent.run(raw, { reviewId: record.reviewId });
+
+      expect(again).toEqual(result);
+      expect(again).toMatchObject({ decision: 'deny', review: { status: 'denied' } });
+      expect(pending.review?.status).toBe('pending');
+      expect(await container.reviews.list()).toEqual([]);
+      expect(await container.database('decisions').count({ n: '*' }).first()).toEqual(audited);
+    });
+
+    it('is not replayed for a review that was approved, or that is still waiting', async () => {
+      const { container, record } = await paused();
+      const raw = ticket({ ticketId: 'T-A1', orderId: 'ORD-1002', customerEmail: 'ben@example.com' });
+      const waiting = await container.agent.run(raw, { reviewId: record.reviewId });
+      expect(waiting.review?.status).toBe('pending'); // still waiting: run again, replacing its own review
+
+      const { result } = await container.agent.resume((await container.reviews.find(record.reviewId))!, approve);
+      await container.reviews.begin(record.reviewId);
+      await container.reviews.resolve(record.reviewId, approve, result);
+      const approved = await container.agent.run(raw, { reviewId: record.reviewId });
+      expect(approved).toMatchObject({ decision: 'approve' }); // the refund it got, not a stored denial
+    });
+  });
 });

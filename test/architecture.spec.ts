@@ -66,10 +66,8 @@ const ALLOWED_LAYERS: Record<string, string[]> = {
   orders: ['domain', 'db', 'shared'],
   policies: ['domain', 'db', 'shared'],
   audit: ['domain', 'db', 'shared'],
-  claims: ['domain', 'db', 'shared'],
   reviews: ['domain', 'db', 'shared'],
   approvals: ['domain', 'shared'],
-  retention: ['db'],
   llm: ['domain', 'guardrails', 'config', 'shared'],
   health: ['shared'],
   tickets: ['domain', 'shared'],
@@ -86,10 +84,8 @@ const ALLOWED_PACKAGES: Record<string, string[]> = {
   orders: [],
   policies: [],
   audit: [],
-  claims: ['node:'],
   reviews: ['node:'],
   approvals: ['fastify', 'node:'],
-  retention: [],
   llm: ['@anthropic-ai/sdk'],
   health: ['fastify'],
   tickets: ['fastify', 'node:'],
@@ -177,13 +173,12 @@ describe('architecture: infrastructure stays where it belongs', () => {
 const throwsRawError = (text: string) => /throw new (?!BusinessLogicError\b)\w*Error\(/.test(text);
 
 /**
- * The only places allowed to throw a raw error, each for a reason. The usual rule stands: an error that can reach a
+ * The only place allowed to throw a raw error, with its reason. The usual rule stands: an error that can reach a
  * caller is a BusinessLogicError with an ErrorCodes entry, so the error filter can answer with `{ code, message }`.
- * These two layers cannot import `shared/`, and what they throw is a programming mistake, never a business outcome.
+ * That layer cannot import `shared/`, and what it throws is a programming mistake, never a business outcome.
  */
 const RAW_ERRORS_ALLOWED: Record<string, string> = {
   'db/knex-checkpoint.saver.ts': "misuse of LangGraph's checkpointer interface by the library's caller (no thread_id)",
-  'retention/retention.service.ts': 'argument check of a maintenance command; the CLI validates the same input first',
 };
 
 describe('architecture: code conventions', () => {

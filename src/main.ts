@@ -21,6 +21,9 @@ async function bootstrap(): Promise<void> {
     database: await openDatabase(databasePath, { seedSampleOrders: config.get('SEED_SAMPLE_ORDERS') }),
   });
   await container.verify(); // fail fast on a database that doesn't match the code
+  // One instance owns the database, so a review still "deciding" belongs to a process that died: put it back.
+  const recovered = container.approvals ? await container.reviews.recover() : 0;
+  if (recovered > 0) logger.warn('reviews left mid-answer by a previous run were put back to waiting', { recovered });
   const app = buildServer(container);
 
   // Graceful shutdown: let in-flight requests finish, then close the database.

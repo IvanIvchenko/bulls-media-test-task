@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { openTestDatabase } from '../support/database.js';
-import { backdateReview, createTestServer, ticket } from '../support/helpers.js';
+import { createTestServer, ticket } from '../support/helpers.js';
 
 /*
  * Human review of escalations: the run pauses after the customer has been answered, a person says yes or no, and the
@@ -44,13 +44,16 @@ describe('pausing for a human', () => {
     expect(await pending(s)).toHaveLength(1);
   });
 
-  it('replays the pending answer to a client that sends the ticket again, without queueing a second review', async () => {
+  it('runs a ticket sent again while it waits once more, and still queues only one review', async () => {
     const s = await server();
     await submit(s);
+    const saved = async () => (await s.container.database('graph_checkpoints').count({ n: '*' }).first())?.n;
+    const before = await saved();
+
     const again = await submit(s);
     expect(again.statusCode).toBe(202);
-    expect(again.headers['idempotent-replay']).toBe('true');
     expect(await pending(s)).toHaveLength(1);
+    expect(await saved()).toBe(before); // the earlier run's saved state was replaced, not left behind
   });
 
   it('does not pause for what a reviewer cannot settle: hostile, unverified, out of scope, or already decided', async () => {
@@ -99,16 +102,20 @@ describe('the reviewer’s answer', () => {
     expect(await refunds(s)).toBe(1);
     expect(await pending(s)).toEqual([]);
 
-    // The ticket now answers with the final decision, not the pending one.
-    const replay = await submit(s);
-    expect(replay.statusCode).toBe(200);
-    expect(replay.json()).toMatchObject({ decision: 'approve', review: { status: 'approved' } });
-    expect(first.review.status).toBe('pending');
     // Both answers are in the audit trail.
     expect(await s.container.database('decisions').where({ ticket_id: 'T-R1' }).pluck('decision')).toEqual([
       'escalate',
       'approve',
     ]);
+
+    // Sent again, the ticket is answered with the refund it already got: nothing paid twice, nothing asked again.
+    const replay = await submit(s);
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json()).toMatchObject({ decision: 'approve', refundAmount: 149 });
+    expect(replay.json().review).toBeUndefined();
+    expect(await refunds(s)).toBe(1);
+    expect(await pending(s)).toEqual([]);
+    expect(first.review.status).toBe('pending');
   });
 
   it('denying pays nothing and tells the customer so, without quoting the rule behind the escalation', async () => {
@@ -123,50 +130,24 @@ describe('the reviewer’s answer', () => {
     expect(await refunds(s)).toBe(0);
   });
 
-  it('can be answered again after the store failed while applying the answer, and pays once', async () => {
-    let failures = 1;
-    const s = await server({
-      wrapPorts: (ports) => ({
-        ...ports,
-        orders: {
-          lookupOrder: (...args) => ports.orders.lookupOrder(...args),
-          recordRefund: async (...args) => {
-            if (failures-- > 0) throw new Error('database unavailable');
-            return ports.orders.recordRefund(...args);
-          },
-        },
-      }),
-    });
-    await submit(s);
-    const reviewId = await firstReview(s);
-
-    const failed = await decide(s, reviewId, { action: 'approve', reviewer: 'Maria' });
-    expect(failed.statusCode).toBe(500);
-    expect(await refunds(s)).toBe(0);
-    expect(await pending(s)).toHaveLength(1); // waiting again, with its saved run intact
-
-    const retried = await decide(s, reviewId, { action: 'approve', reviewer: 'Maria' });
-    expect(retried.statusCode).toBe(200);
-    expect(retried.json()).toMatchObject({ decision: 'approve', refundAmount: 149 });
-    expect(await refunds(s)).toBe(1);
-  });
-
   it('records the answer that was applied when a failed attempt is retried by someone else, and tells them', async () => {
-    // Maria approves; the refund is paid; then recording the answer fails. Boris, seeing it waiting, says no.
+    // Maria approves; the refund is paid; then recording her answer fails. Boris, seeing it waiting, says no.
     let failures = 1;
     const s = await server({
       wrapPorts: (ports) => ({
         ...ports,
-        claims: {
-          ...ports.claims,
-          tryClaim: (...args) => ports.claims.tryClaim(...args),
-          find: (...args) => ports.claims.find(...args),
-          takeOver: (...args) => ports.claims.takeOver(...args),
-          complete: (...args) => ports.claims.complete(...args),
-          release: (...args) => ports.claims.release(...args),
-          replaceResult: async (...args) => {
+        reviews: {
+          ...ports.reviews,
+          open: (...args) => ports.reviews.open(...args),
+          list: () => ports.reviews.list(),
+          find: (...args) => ports.reviews.find(...args),
+          deniedFor: (...args) => ports.reviews.deniedFor(...args),
+          begin: (...args) => ports.reviews.begin(...args),
+          release: (...args) => ports.reviews.release(...args),
+          recover: () => ports.reviews.recover(),
+          resolve: async (...args) => {
             if (failures-- > 0) throw new Error('database unavailable');
-            return ports.claims.replaceResult(...args);
+            return ports.reviews.resolve(...args);
           },
         },
       }),
@@ -194,7 +175,7 @@ describe('the reviewer’s answer', () => {
         .first('status', 'decision', 'reviewer', 'note'),
     ).toEqual({ status: 'resolved', decision: 'approve', reviewer: 'Maria', note: 'phoned us' });
     const replay = (await submit(s)).json();
-    expect(replay).toMatchObject({ decision: 'approve', review: { status: 'approved', reviewer: 'Maria' } });
+    expect(replay).toMatchObject({ decision: 'approve', refundAmount: 149 }); // the ticket got its refund
     expect(await s.container.database('graph_checkpoints').count({ n: '*' }).first()).toEqual({ n: 0 });
   });
 
@@ -213,61 +194,7 @@ describe('the reviewer’s answer', () => {
     }
   });
 
-  it('tells another reviewer their answer was not used even when it says the same as the one that was', async () => {
-    let failures = 1;
-    const s = await server({
-      wrapPorts: (ports) => ({
-        ...ports,
-        orders: {
-          lookupOrder: (...args) => ports.orders.lookupOrder(...args),
-          recordRefund: async (...args) => {
-            if (failures-- > 0) throw new Error('database unavailable'); // after Maria's answer was taken
-            return ports.orders.recordRefund(...args);
-          },
-        },
-      }),
-    });
-    await submit(s);
-    const reviewId = await firstReview(s);
-    expect((await decide(s, reviewId, { action: 'approve', reviewer: 'Maria' })).statusCode).toBe(500);
-
-    const boris = await decide(s, reviewId, { action: 'approve', reviewer: 'Boris' });
-    expect(boris.statusCode).toBe(409);
-    expect(boris.json().code).toBe('REVIEW_ALREADY_ANSWERED');
-    expect(boris.json().message).toContain('Maria (approve) had already been applied, which says the same as yours');
-    expect(
-      await s.container.database('pending_reviews').where({ review_id: reviewId }).first('decision', 'reviewer'),
-    ).toEqual({
-      decision: 'approve',
-      reviewer: 'Maria',
-    });
-    expect(await refunds(s)).toBe(1);
-  });
-
-  it('lets exactly one of two simultaneous answers through, and pays once', async () => {
-    const s = await server();
-    await submit(s);
-    const reviewId = await firstReview(s);
-    const answers = await Promise.all([
-      decide(s, reviewId, { action: 'approve', reviewer: 'Ana' }),
-      decide(s, reviewId, { action: 'approve', reviewer: 'Boris' }),
-    ]);
-    expect(answers.map((answer) => answer.statusCode).sort()).toEqual([200, 409]);
-    expect(await refunds(s)).toBe(1);
-  });
-
-  it('refuses a second answer once the review is decided', async () => {
-    const s = await server();
-    await submit(s);
-    const reviewId = await firstReview(s);
-    await decide(s, reviewId, { action: 'deny', reviewer: 'Ana' });
-    const late = await decide(s, reviewId, { action: 'approve', reviewer: 'Boris' });
-    expect(late.statusCode).toBe(409);
-    expect(late.json().code).toBe('REVIEW_NOT_PENDING');
-    expect(await refunds(s)).toBe(0);
-  });
-
-  it('rejects an answer that is not well formed, and leaves the review waiting', async () => {
+  it('rejects what it cannot use: a malformed answer, a review that does not exist, one already answered', async () => {
     const s = await server();
     await submit(s);
     const reviewId = await firstReview(s);
@@ -275,38 +202,38 @@ describe('the reviewer’s answer', () => {
       {},
       { action: 'maybe', reviewer: 'Ana' },
       { action: 'approve' },
-      { action: 'approve', reviewer: '  ' },
+      { action: 'approve', reviewer: ' ' },
     ]) {
-      const response = await decide(s, reviewId, body);
-      expect(response.statusCode, JSON.stringify(body)).toBe(400);
+      expect((await decide(s, reviewId, body)).statusCode, JSON.stringify(body)).toBe(400);
     }
-    expect(await pending(s)).toHaveLength(1);
-  });
+    expect(await pending(s)).toHaveLength(1); // still waiting after every bad answer
 
-  it('says so for a review that does not exist', async () => {
-    const s = await server();
-    const response = await decide(s, 'T-nope:0123456789abcdef', { action: 'deny', reviewer: 'Ana' });
-    expect(response.statusCode).toBe(404);
-    expect(response.json().code).toBe('REVIEW_NOT_FOUND');
+    const missing = await decide(s, 'T-nope:0123456789abcdef', { action: 'deny', reviewer: 'Ana' });
+    expect([missing.statusCode, missing.json().code]).toEqual([404, 'REVIEW_NOT_FOUND']);
+
+    await decide(s, reviewId, { action: 'deny', reviewer: 'Ana' });
+    const late = await decide(s, reviewId, { action: 'approve', reviewer: 'Boris' });
+    expect([late.statusCode, late.json().code]).toEqual([409, 'REVIEW_NOT_PENDING']);
+    expect(await refunds(s)).toBe(0);
   });
 });
 
-describe('a review whose decider died', () => {
-  it('is not stuck: after the timeout the next answer takes it over, and pays once', async () => {
+describe('a review left mid-answer by a process that died', () => {
+  it('blocks answers until the service starts again, which puts it back to waiting; then it is answered once', async () => {
     const s = await server();
     await submit(s);
     const reviewId = await firstReview(s);
-    // Another instance began deciding and then crashed before recording anything.
-    await s.container.reviews.begin(reviewId, 180_000);
+    // The previous process began deciding and died before recording anything.
+    await s.container.reviews.begin(reviewId);
 
-    const tooSoon = await decide(s, reviewId, { action: 'approve', reviewer: 'Maria' });
-    expect(tooSoon.statusCode).toBe(409);
+    const stuck = await decide(s, reviewId, { action: 'approve', reviewer: 'Maria' });
+    expect(stuck.statusCode).toBe(409);
     expect(await refunds(s)).toBe(0);
 
-    await backdateReview(s.container.database, reviewId, 181_000);
-    const taken = await decide(s, reviewId, { action: 'approve', reviewer: 'Maria' });
-    expect(taken.statusCode).toBe(200);
-    expect(taken.json()).toMatchObject({ decision: 'approve', refundAmount: 149 });
+    expect(await s.container.reviews.recover()).toBe(1); // what main.ts does at startup
+    const answered = await decide(s, reviewId, { action: 'approve', reviewer: 'Maria' });
+    expect(answered.statusCode).toBe(200);
+    expect(answered.json()).toMatchObject({ decision: 'approve', refundAmount: 149 });
     expect(await refunds(s)).toBe(1);
     expect(await pending(s)).toEqual([]);
   });
@@ -353,27 +280,95 @@ describe('who may answer', () => {
   });
 });
 
-describe('a decided review', () => {
-  it('shows as resolved, and a new escalation for the same ticket id opens a fresh review', async () => {
+describe('a reviewer’s no', () => {
+  async function denied() {
     const s = await server();
-    await submit(s);
+    const first = await submit(s);
     const reviewId = await firstReview(s);
-    await decide(s, reviewId, { action: 'deny', reviewer: 'Ana' });
+    const answer = await decide(s, reviewId, { action: 'deny', reviewer: 'Ana' });
+    return { s, reviewId, first, answer: answer.json() };
+  }
+
+  it('shows the review as resolved', async () => {
+    const { s, reviewId } = await denied();
     const detail = (
       await s.app.inject({ method: 'GET', url: `/reviews/${encodeURIComponent(reviewId)}`, headers: auth })
     ).json();
     expect(detail.status).toBe('resolved');
+  });
 
-    // The old claim is gone (pruned), and the client comes back with the same ticket id.
-    await s.container.database('ticket_claims').del();
+  it('sticks: sending the ticket again returns the same denial, and queues no review for a more lenient reviewer', async () => {
+    const { s, answer } = await denied();
+    const decisionsBefore = await s.container.database('decisions').count({ n: '*' }).first();
+
     const again = await submit(s);
-    expect(again.statusCode).toBe(202);
-    expect(await pending(s)).toHaveLength(1);
+    expect(again.statusCode).toBe(200);
+    expect(again.json()).toEqual(answer); // exactly what the customer was told
+    expect(again.json()).toMatchObject({ decision: 'deny', review: { status: 'denied' } });
+    expect(await pending(s)).toEqual([]);
+    expect(await refunds(s)).toBe(0);
+    expect(await s.container.database('decisions').count({ n: '*' }).first()).toEqual(decisionsBefore); // nothing was run
+  });
+
+  it('sticks however the ticket is reworded, since it is the same ticket for the same sender', async () => {
+    const { s, answer } = await denied();
+    const reworded = await submit(
+      s,
+      overLimit({ subject: 'Please reconsider', body: 'It really was broken, please refund.' }),
+    );
+    expect(reworded.json()).toEqual(answer);
+    expect(await pending(s)).toEqual([]);
+  });
+
+  it('does not reach another customer who uses the same ticket id', async () => {
+    const { s } = await denied();
+    // Anna's own ticket with the same id is not Ben's denied one: the key includes the sender.
+    const other = await submit(s, ticket({ ticketId: 'T-R1', orderId: 'ORD-1001', customerEmail: 'anna@example.com' }));
+    expect(other.statusCode).toBe(200);
+    expect(other.json()).toMatchObject({ decision: 'approve' });
+  });
+
+  it('puts itself in front of whoever reviews a new ticket about the same order', async () => {
+    const { s } = await denied(); // Ana denied T-R1, with no note
+    const fresh = await submit(s, overLimit({ ticketId: 'T-R2' }));
+    expect(fresh.statusCode).toBe(202);
+    expect(fresh.json().handoff.priorDenials).toEqual([
+      { ticketId: 'T-R1', reviewer: 'Ana', decidedAt: expect.any(String) },
+    ]);
+
+    const listed = (await s.app.inject({ method: 'GET', url: '/reviews', headers: auth })).json().reviews;
+    expect(listed).toHaveLength(1);
+    expect(listed[0]).toMatchObject({ ticketId: 'T-R2', priorDenials: 1 });
+
+    const reviewId = listed[0].reviewId as string;
+    const detail = (
+      await s.app.inject({ method: 'GET', url: `/reviews/${encodeURIComponent(reviewId)}`, headers: auth })
+    ).json();
+    expect(detail.escalation.handoff.priorDenials[0]).toMatchObject({ ticketId: 'T-R1', reviewer: 'Ana' });
+  });
+
+  it('says nothing when the order has no earlier denial', async () => {
+    const s = await server();
+    const first = await submit(s);
+    expect(first.json().handoff.priorDenials).toBeUndefined();
+    expect((await s.app.inject({ method: 'GET', url: '/reviews', headers: auth })).json().reviews[0].priorDenials).toBe(
+      0,
+    );
+  });
+
+  it('is replayed only for a denial: a ticket approved after review is answered with its refund, not queued again', async () => {
+    const s = await server();
+    await submit(s);
+    await decide(s, await firstReview(s), { action: 'approve', reviewer: 'Ana' });
+    const again = await submit(s);
+    expect(again.json()).toMatchObject({ decision: 'approve', refundAmount: 149 });
+    expect(await pending(s)).toEqual([]);
+    expect(await refunds(s)).toBe(1);
   });
 });
 
-describe('across instances', () => {
-  it('resumes in a different instance, which has nothing of the paused run but the database', async () => {
+describe('across a restart', () => {
+  it('resumes in a fresh service that has nothing of the paused run but the database', async () => {
     const database = await openTestDatabase();
     const first = await server({ database });
     await submit(first);
