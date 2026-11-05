@@ -10,8 +10,8 @@ const NOT_CONDITIONAL = String.raw`(?<!\b(?:before|until|unless|if|whether|once|
 /**
  * Ways a reply can promise money. Only checked when the decision is NOT an approval. A heuristic: a clever
  * paraphrase can slip past it, which is why the number rule below also applies, and why the decision itself
- * never comes from the model. It errs towards rejecting (a rejected draft costs a template), but real replies showed
- * two harmless phrasings it must not trip on: a condition ("before any refund is approved") and the noun "payment
+ * never comes from the model. It errs towards rejecting (a rejected draft costs a template), but two harmless
+ * phrasings must not trip it: a condition ("before any refund is approved") and the noun "payment
  * method" ("the payment method it was returned to").
  */
 const MONEY_PROMISES: readonly RegExp[] = [

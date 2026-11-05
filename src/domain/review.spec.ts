@@ -8,6 +8,7 @@ import {
   reviewedOutcome,
   type Classification,
   type Order,
+  type ReviewInput,
 } from './index.js';
 
 const order: Order = {
@@ -27,7 +28,7 @@ const classification: Classification = {
   orderIdMentioned: null,
   refundRequestQuote: 'I want my money back',
 };
-const reviewable = { decision: 'escalate', lookup: 'found', order, classification, flags: [] as string[] };
+const reviewable: ReviewInput = { decision: 'escalate', lookup: 'found', order, classification, flags: [] };
 
 describe('reviewableEscalation', () => {
   it('is true for an escalated refund request on a verified order', () => {

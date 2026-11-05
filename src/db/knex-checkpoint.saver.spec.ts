@@ -177,7 +177,7 @@ describe('KnexCheckpointSaver: running a real graph', () => {
     const graph = build(checkpointer);
     await graph.invoke({}, config);
     const waiting = await graph.getState(config);
-    // A second graph object on the same saver: what another instance would have.
+    // A second graph object on the same saver: what a restarted service would have.
     const finished = await build(checkpointer).invoke(new Command({ resume: 'yes' }), config);
     return { waiting: { next: waiting.next, values: waiting.values }, finished };
   };

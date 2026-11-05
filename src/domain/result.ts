@@ -67,14 +67,12 @@ export const resultSchema = z.object({
   summary: z.string(),
   trace: z.array(traceEntrySchema),
   review: reviewStatusSchema.optional(),
-  /** Totals over the model calls in the trace. Results stored before this existed read as zero. */
-  usage: z
-    .object({
-      llmCalls: z.number().int().nonnegative(),
-      inputTokens: z.number().int().nonnegative(),
-      outputTokens: z.number().int().nonnegative(),
-      llmMs: z.number().nonnegative(),
-    })
-    .default({ llmCalls: 0, inputTokens: 0, outputTokens: 0, llmMs: 0 }),
+  /** Totals over the model calls in the trace. */
+  usage: z.object({
+    llmCalls: z.number().int().nonnegative(),
+    inputTokens: z.number().int().nonnegative(),
+    outputTokens: z.number().int().nonnegative(),
+    llmMs: z.number().nonnegative(),
+  }),
 });
 export type Result = z.infer<typeof resultSchema>;

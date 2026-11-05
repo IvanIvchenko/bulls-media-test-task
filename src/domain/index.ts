@@ -3,6 +3,7 @@ export * from './order.js';
 export * from './result.js';
 export * from './policy.js';
 export * from './eligibility.js';
+export * from './outcome.js';
 export * from './decision.js';
 export * from './refund-request.js';
 export * from './reply.js';

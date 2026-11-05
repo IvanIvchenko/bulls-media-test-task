@@ -2,9 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { checkRefundEligibility } from './index.js';
 import type { Order } from './index.js';
-import { NOW, createTestContainer } from '../../test/support/helpers.js';
-
-const { config: policy } = await (await createTestContainer()).policies.loadSnapshot();
+import { NOW, policyConfig as policy } from '../../test/support/fixtures.js';
 
 const order = (o: Partial<Order> = {}): Order => ({
   orderId: 'ORD-1',

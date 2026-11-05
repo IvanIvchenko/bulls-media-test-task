@@ -47,7 +47,7 @@ const CHECKPOINT_KEY = ['thread_id', 'checkpoint_ns', 'checkpoint_id'];
 
 /**
  * LangGraph's checkpoint store on the application's own Knex handle, so a paused run lives in the same database as
- * everything else that decides correctness: any instance can resume it, and it survives a restart. It follows the
+ * everything else that decides correctness, so it survives a restart. It follows the
  * `BaseCheckpointSaver` contract (the in-memory saver is the reference) and nothing more.
  *
  * The ready-made SQLite and Postgres savers each open their own driver connection. Here that would break two rules: one

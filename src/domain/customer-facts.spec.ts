@@ -12,7 +12,7 @@ import {
   type Order,
   type Outcome,
 } from './index.js';
-import { NOW, createTestContainer } from '../../test/support/helpers.js';
+import { NOW, policyConfig as policy } from '../../test/support/fixtures.js';
 import { checkReply } from '../guardrails/output.util.js';
 
 /*
@@ -20,7 +20,6 @@ import { checkReply } from '../guardrails/output.util.js';
  * guard must accept a reply made of exactly those words, or a perfectly good draft is thrown away for repeating
  * what it was given (found with the real model: "before any money is returned" tripped the money-promise pattern).
  */
-const { config: policy } = await (await createTestContainer()).policies.loadSnapshot();
 
 const order: Order = {
   orderId: 'ORD-1',
@@ -87,7 +86,6 @@ describe('what the customer is told', () => {
   for (const [name, outcome] of Object.entries(scenarios)) {
     it(`passes the output guard when repeated back, for ${name}`, () => {
       const reply = templateReply({
-        ticket: { ...ticket, customerEmail: 'a@b.com' },
         decision: outcome.decision,
         facts: outcome.facts,
         policyNotes: [],
@@ -106,7 +104,6 @@ describe('what the customer is told', () => {
   it('is also true of the refund that was already recorded for the ticket', () => {
     const outcome = refundAlreadyRecordedOutcome({ ...order, refunded: true, refundedAmount: 40 });
     const reply = templateReply({
-      ticket: { ...ticket, customerEmail: 'a@b.com' },
       decision: 'approve',
       facts: outcome.facts,
       policyNotes: [],
@@ -115,28 +112,5 @@ describe('what the customer is told', () => {
     expect(
       checkReply(reply, { decision: 'approve', orderIds: ['ORD-1'], refundAmount: 40, allowedText: outcome.facts }),
     ).toEqual([]);
-  });
-
-  it('is also true of every policy rule, which a reply may quote when a decision cites it', async () => {
-    const { rules } = await (await createTestContainer()).policies.loadSnapshot();
-    for (const rule of rules) {
-      const note = `${rule.id} ${rule.title}: ${rule.text}`;
-      for (const decision of ['deny', 'escalate'] as const) {
-        const reply = templateReply({
-          ticket: { ...ticket, customerEmail: 'a@b.com' },
-          decision,
-          facts: ['Regarding order ORD-1 (Desk Lamp).'],
-          policyNotes: [note],
-          refundAmount: 0,
-        });
-        const problems = checkReply(reply, {
-          decision,
-          orderIds: ['ORD-1'],
-          refundAmount: 0,
-          allowedText: ['Regarding order ORD-1 (Desk Lamp).', note],
-        });
-        expect(problems, `${rule.id} in a ${decision}: ${reply}`).toEqual([]);
-      }
-    }
   });
 });

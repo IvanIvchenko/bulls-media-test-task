@@ -12,11 +12,14 @@ export interface ReplyContext {
   refundAmount: number;
 }
 
+/** What the template needs: everything the model is given except the customer's own words, which it never uses. */
+export type TemplateContext = Omit<ReplyContext, 'ticket'>;
+
 /**
  * Deterministic reply. It is the offline reply of the mock model and, in production, the safe fallback
  * when the real model fails or its draft is rejected by the output guard. It must always pass that guard.
  */
-export function templateReply(ctx: ReplyContext): string {
+export function templateReply(ctx: TemplateContext): string {
   const hi = 'Hello,';
   const facts = ctx.facts.join(' ');
   const policy = ctx.policyNotes.length ? ` Relevant policy: ${ctx.policyNotes.join(' ')}` : '';

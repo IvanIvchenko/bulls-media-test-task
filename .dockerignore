@@ -10,3 +10,4 @@ data/*.db-*
 test
 samples
 *.md
+docs

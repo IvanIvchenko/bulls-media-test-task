@@ -1,14 +1,14 @@
 import type { Order } from './order.js';
 import type { PolicyConfig, PolicyRule } from './policy.js';
 import type { Result } from './result.js';
-import type { ReviewAnswer } from './review.js';
+import type { NewReview, PriorDenial, ReviewAnswer, ReviewRecord, ReviewSummary } from './review.js';
 
 /*
  * The agent's tools, as interfaces. They are defined here, on the inside, and implemented by the feature
  * repositories. The agent and the HTTP layer depend only on these, never on a database.
  *
- * Every method returns a Promise because storage is treated as slow, remote and shared by several processes:
- * nothing may assume a call is instant, or that it sees only this process's writes.
+ * Every method returns a Promise because storage is treated as slow and remote: nothing may assume a call is
+ * instant, so a database can be swapped in without touching the agent.
  */
 
 export type LookupResult = { found: true; order: Order } | { found: false; reason: 'not_found' | 'email_mismatch' };
@@ -38,40 +38,6 @@ export interface PolicyTools {
 /** Append-only record of every decision. */
 export interface AuditTrail {
   record(result: Result, now: Date): Promise<void>;
-}
-
-/** A run paused for a human: what the reviewer sees, and the graph thread (saved in the database) to resume. */
-export interface NewReview {
-  reviewId: string;
-  ticketId: string;
-  orderId: string;
-  threadId: string;
-  /** The escalation as the customer received it, with `review.status` pending. */
-  request: Result;
-}
-
-export interface ReviewRecord extends NewReview {
-  status: 'pending' | 'deciding' | 'resolved';
-  /** Once resolved: the answer that was applied, and the final result the customer got. */
-  answer?: ReviewAnswer;
-  finalResult?: Result;
-}
-
-export interface ReviewSummary {
-  reviewId: string;
-  ticketId: string;
-  summary: string;
-  createdAt: Date;
-  /** How many earlier tickets about this order were denied by a reviewer. */
-  priorDenials: number;
-}
-
-/** A reviewer's earlier no, on another ticket about the same order. */
-export interface PriorDenial {
-  ticketId: string;
-  reviewer: string;
-  note?: string;
-  decidedAt: Date;
 }
 
 /**

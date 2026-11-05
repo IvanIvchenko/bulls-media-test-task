@@ -101,12 +101,8 @@ export class AgentService {
       consumed = this.isSame(saved.values.review, answer);
     }
     if (!state.result) throw this.invariant('The run did not finish after the review.');
-    return { result: state.result, consumed }; // the saved run stays until `discard`, so a failure while recording can be retried
-  }
-
-  private isSame(earlier: AgentState['review'], answer: ReviewAnswer): boolean {
-    const status = answer.action === 'approve' ? 'approved' : 'denied';
-    return earlier !== undefined && earlier.reviewer === answer.reviewer && earlier.status === status;
+    // The saved run stays until `discard`, so a failure while recording can be retried.
+    return { result: state.result, consumed };
   }
 
   /** Forget a run once its answer is fully recorded. */
@@ -170,6 +166,11 @@ export class AgentService {
         })),
       },
     };
+  }
+
+  private isSame(earlier: AgentState['review'], answer: ReviewAnswer): boolean {
+    const status = answer.action === 'approve' ? 'approved' : 'denied';
+    return earlier !== undefined && earlier.reviewer === answer.reviewer && earlier.status === status;
   }
 
   private async isWaiting(config: ThreadConfig): Promise<boolean> {

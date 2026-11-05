@@ -1,4 +1,5 @@
 import { openTestDatabase } from './database.js';
+import { NOW } from './fixtures.js';
 import { ConfigService } from '../../src/config/config.service.js';
 import { createContainer, createPorts, type Container, type Ports } from '../../src/container.js';
 import type { Database } from '../../src/db/typedef.js';
@@ -7,7 +8,7 @@ import { MockLlmService } from '../../src/llm/mock.service.js';
 import type { LLM } from '../../src/llm/typedef.js';
 import { buildServer } from '../../src/server.js';
 
-export const NOW = new Date('2026-11-04');
+export { NOW } from './fixtures.js';
 
 export interface TestContainerOptions {
   /** Seed these orders instead of the sample ones. */
@@ -18,7 +19,7 @@ export interface TestContainerOptions {
   env?: Record<string, string>;
   /** Wrap or replace the storage ports, e.g. to add latency or count calls. */
   wrapPorts?: (ports: Ports) => Ports;
-  /** Use this database instead of a fresh in-memory one, e.g. a file shared by two instances. */
+  /** Use this database instead of a fresh in-memory one, e.g. a file reopened to simulate a restart. */
   database?: Database;
   /** Clock. Defaults to a fixed date. */
   now?: () => Date;

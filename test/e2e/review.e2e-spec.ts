@@ -7,7 +7,7 @@ import { answered } from '../support/llm.js';
 
 /*
  * Human review of escalations: the run pauses after the customer has been answered, a person says yes or no, and the
- * run continues from where it stopped, even in another instance. The reviewer decides whether; code decides how much.
+ * run continues from where it stopped. The reviewer decides whether; code decides how much.
  */
 const TOKEN = 'a-review-token-of-16+chars';
 const auth = { authorization: `Bearer ${TOKEN}` };

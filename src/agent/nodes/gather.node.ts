@@ -1,7 +1,6 @@
-import { FLAG, rankRules, type OrderTools } from '../../domain/index.js';
+import { FLAG, rankRules, searchQuery, type OrderTools } from '../../domain/index.js';
 import { STEP, TOOL } from '../constants.js';
 import { needs } from '../needs.util.js';
-import { searchQuery } from '../search-query.util.js';
 import { step } from '../trace.util.js';
 import type { AgentNode, AgentState, AgentStateUpdate } from '../typedef.js';
 
@@ -27,34 +26,26 @@ export class GatherNode implements AgentNode {
       detail: `top: ${relatedPolicies.map((rule) => rule.id).join(',') || 'none'}`,
     });
 
-    if (!orderId) {
-      const missing = step(state, {
-        step: STEP.LOOKUP_ORDER,
-        tool: TOOL.LOOKUP_ORDER,
-        ok: false,
-        detail: 'no order id',
-      });
-      return { orderId, lookup: 'no_order_id', relatedPolicies, flags, trace: [...searched, ...missing] };
-    }
+    const lookedUp = (ok: boolean, detail: string) =>
+      step(state, { step: STEP.LOOKUP_ORDER, tool: TOOL.LOOKUP_ORDER, ok, detail });
+    const base = { orderId, relatedPolicies, flags };
 
-    const lookupResult = await this.orders.lookupOrder(orderId, ticket.customerEmail);
-    const looked = step(state, {
-      step: STEP.LOOKUP_ORDER,
-      tool: TOOL.LOOKUP_ORDER,
-      ok: lookupResult.found,
-      detail: lookupResult.found ? `${orderId} found` : `${orderId} ${lookupResult.reason}`,
-    });
-    if (!lookupResult.found) {
-      return { orderId, lookup: lookupResult.reason, relatedPolicies, flags, trace: [...searched, ...looked] };
+    if (!orderId) {
+      return { ...base, lookup: 'no_order_id', trace: [...searched, ...lookedUp(false, 'no order id')] };
     }
-    const { order } = lookupResult;
+    const result = await this.orders.lookupOrder(orderId, ticket.customerEmail);
+    if (!result.found) {
+      return {
+        ...base,
+        lookup: result.reason,
+        trace: [...searched, ...lookedUp(false, `${orderId} ${result.reason}`)],
+      };
+    }
     return {
-      orderId,
-      order,
+      ...base,
       lookup: 'found',
-      relatedPolicies,
-      flags,
-      trace: [...searched, ...looked],
+      order: result.order,
+      trace: [...searched, ...lookedUp(true, `${orderId} found`)],
     };
   }
 }

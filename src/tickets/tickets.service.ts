@@ -2,11 +2,7 @@ import { reviewKeyOf } from './review-key.util.js';
 import type { TicketRunner, TicketsOptions } from './typedef.js';
 import type { Result } from '../domain/index.js';
 
-/**
- * Runs one ticket through the agent. There is no claim and no replay: a request sent twice is run twice. That is safe
- * for money (the refund is guarded in the database, and a ticket that already got its refund is answered with it
- * again) but it does cost another model call and another audit row, and the wording of a reply can differ.
- */
+/** Runs one ticket through the agent. A request sent twice is run twice; the refund guard keeps the money safe. */
 export class TicketsService {
   public constructor(
     private readonly agent: TicketRunner,
