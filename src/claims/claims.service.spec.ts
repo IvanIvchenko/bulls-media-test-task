@@ -71,6 +71,16 @@ describe('ClaimsService', () => {
     });
   });
 
+  it('replaces the decision of a finished claim, and only of a finished one', async () => {
+    const service = await claims();
+    const token = (await service.tryClaim('T-1', 'hash'))!;
+    expect(await service.replaceResult('T-1', result)).toBe(false); // still in progress: nothing to replace
+    await service.complete('T-1', token, result);
+    expect(await service.replaceResult('T-1', { ...result, reply: 'changed' })).toBe(true);
+    expect((await service.find('T-1'))?.result?.reply).toBe('changed');
+    expect(await service.replaceResult('T-404', result)).toBe(false);
+  });
+
   it('knows nothing about an unclaimed ticket', async () => {
     expect(await (await claims()).find('T-404')).toBeUndefined();
   });

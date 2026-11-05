@@ -11,7 +11,9 @@ import {
   DEFAULT_LLM_TIMEOUT_MS,
   DEFAULT_MODEL,
   DEFAULT_PORT,
+  DEFAULT_REVIEW_STALE_AFTER_MS,
   LOG_LEVELS,
+  MODEL_CALLS_PER_REVIEW,
   MODEL_CALLS_PER_TICKET,
 } from './constants.js';
 
@@ -44,6 +46,11 @@ const environmentSchema = z.object({
   /** Fill an empty orders table with the demo customers. Defaults to off in production, where it would be fake data. */
   SEED_SAMPLE_ORDERS: fromEnv(flag.optional()),
 
+  /** Turns on human review of escalations and protects its routes. At least 16 characters. Unset means no review. */
+  REVIEW_TOKEN: fromEnv(z.string().trim().min(16).optional()),
+  /** Like CLAIM_STALE_AFTER_MS, for a review being answered: after this long another caller may take it over. */
+  REVIEW_STALE_AFTER_MS: fromEnv(z.coerce.number().int().positive().default(DEFAULT_REVIEW_STALE_AFTER_MS)),
+
   HOST: fromEnv(z.string().trim().default(DEFAULT_HOST)),
   PORT: fromEnv(z.coerce.number().int().positive().default(DEFAULT_PORT)),
   BODY_LIMIT_BYTES: fromEnv(z.coerce.number().int().positive().default(DEFAULT_BODY_LIMIT_BYTES)),
@@ -65,6 +72,14 @@ export const configSchema = environmentSchema
         message:
           `must be longer than the worst-case model time of ${worstCaseMs} ms ` +
           `(${MODEL_CALLS_PER_TICKET} calls x ${env.LLM_MAX_RETRIES + 1} attempts x ${env.LLM_TIMEOUT_MS} ms timeout)`,
+      });
+    }
+    const reviewWorstCaseMs = MODEL_CALLS_PER_REVIEW * (env.LLM_MAX_RETRIES + 1) * env.LLM_TIMEOUT_MS;
+    if (env.REVIEW_STALE_AFTER_MS <= reviewWorstCaseMs) {
+      context.addIssue({
+        code: 'custom',
+        path: ['REVIEW_STALE_AFTER_MS'],
+        message: `must be longer than the worst-case time to answer a review of ${reviewWorstCaseMs} ms`,
       });
     }
   })

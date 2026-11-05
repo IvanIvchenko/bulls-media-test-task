@@ -10,6 +10,14 @@ export class RetentionRepository {
     return this.database(TABLE.DECISIONS).where('created_at', '<', cutoff.toISOString()).del();
   }
 
+  /** Reviews a person has answered. One still waiting (or being decided) is never touched: someone may yet answer it. */
+  public async deleteResolvedReviewsBefore(cutoff: Date): Promise<number> {
+    return this.database(TABLE.PENDING_REVIEWS)
+      .where({ status: 'resolved' })
+      .andWhere('resolved_at', '<', toStoredTimestamp(this.database, cutoff))
+      .del();
+  }
+
   /**
    * Finished claims last touched before the cutoff. A claim still `in_progress` is never touched here: whether its
    * owner is dead is for the staleness rule, at the moment someone needs the ticket.

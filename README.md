@@ -59,6 +59,9 @@ The agent resolves routine cases, **refuses** unverifiable ones and **escalates*
               │             (getPolicyRules)
               ▼
           finalize ─► JSON result + summary + trace, one audit row
+              │ escalation a person can settle (REVIEW_TOKEN set)
+              ▼
+   human_review (interrupt) ─► apply_review ─► draft_reply ─► finalize
 ```
 
 **Tools:** `lookupOrder` (ownership-checked), `checkRefundEligibility` (pure rules), `recordRefund` (atomic), `getPolicyRules`, `searchPolicies` (keyword ranking, hints for the reviewer). The LLM is used twice: to classify into a fixed schema (forced tool call) and to word the reply from decided facts.
@@ -90,6 +93,7 @@ Dependencies point inward and the agent sees storage only through interfaces, so
 - The model cannot decide money, and its words can only make an outcome stricter. Its refund reason matters only after the 30-day return window: a defect claim up to day 60 then goes to a human instead of being approved, so adding the word "broken" to a changed-mind request buys nothing.
 - Ownership check; a wrong email and an unknown order look identical to the customer.
 - Replies are checked (English only; every number must come from the decided facts or refund amount; no money promises unless approved; no URLs, emails, domains or foreign order ids) and fall back to a template.
+- Escalations a person can settle can pause for a human (`interrupt()`, off unless `REVIEW_TOKEN` is set): the reviewer says yes or no, never the amount, and the refund goes through the same guarded step. See [docs/operations.md](docs/operations.md).
 - A recorded delivery date in the future escalates. If the store refuses a refund the agent already approved, the whole decision, reasons and reply become a denial.
 - Refunds are atomic and idempotent; PII is masked in logs and traces.
 
@@ -199,6 +203,7 @@ An injection attempt (sample 08) gives `escalate` with flag `prompt_injection_su
 
 - **The real-Claude path has not been run end to end.** The mock model is keyword-based, so tests prove the pipeline and guardrails, not model quality.
 - It is a workflow with two model calls, not an open-ended agent: the model never chooses tools or decides money. That is deliberate, and it is why a fooled model cannot approve a refund.
+- Human review is minimal: one shared token, no reviewer accounts, no notifications and no expiry. Paused runs are saved by a small Knex checkpointer, not LangGraph's ready-made ones (see [docs/operations.md](docs/operations.md)).
 - Rules in the database are safe and change without a deploy, but a bad row is a bad policy: it needs access control, and required rows are validated at startup.
 - Injection scoring is defence in depth and can be bypassed, which is why the model has no authority to approve. Some benign tickets may escalate: a deliberate bias toward safety.
 - Reply checks and injection scoring are English-only regexes. A draft in another language is rejected and the English template is sent; an injection in another language is not scored (the fence, the quote check and the code-made decision still apply).
@@ -207,7 +212,7 @@ An injection attempt (sample 08) gives `escalate` with flag `prompt_injection_su
 - Orders are sample data: no real payment, email or ticketing integration. No memory across tickets. The order id (`ORD-1001`) is also the primary key of `orders`, and `refunds` points at it. In production the shop or ERP owns order ids and their format changes over time, so the table would get its own surrogate key plus a unique public order number. The format itself is defined once (`ORDER_ID_PATTERN` in `src/domain/constants.ts`), and a test fails if a second copy appears.
 - SQLite storage, claim handling and the HTTP service have their own limits: see [docs/operations.md](docs/operations.md).
 
-Next: human approval for escalations (LangGraph `interrupt()` + checkpointer), real integrations, an LLM eval set, tracing export (OpenTelemetry), authentication and rate limiting, a networked SQL database.
+Next: reviewer accounts, notifications and expiry for the review queue (today: one shared token, polling, no timeout), real integrations, an LLM eval set, tracing export (OpenTelemetry), authentication and rate limiting, a networked SQL database.
 
 ## 9. Real-world usage
 
@@ -215,4 +220,4 @@ Next: human approval for escalations (LangGraph `interrupt()` + checkpointer), r
 
 Realistic users: e-commerce support teams (routine refunds and order status), SaaS billing support (refunds under clear windows), marketplaces and ticketing operators (policy-driven refund triage at volume).
 
-To productionize: authentication and rate limiting; secrets in a vault; real order and payment APIs with idempotency keys; a managed database with migrations and restricted write access to the policy tables; tracing, alerts on escalation and refund spikes, and a standing eval set; an approval queue for escalations with sampling review of auto-approvals and a lower limit at launch; PII and GDPR handling, retention, and a consumer-law review of the refund policy.
+To productionize: authentication and rate limiting; secrets in a vault; real order and payment APIs with idempotency keys; a managed database with migrations and restricted write access to the policy tables; tracing, alerts on escalation and refund spikes, and a standing eval set; reviewer accounts, notifications and expiry for the review queue, sampling review of auto-approvals and a lower limit at launch; PII and GDPR handling, retention, and a consumer-law review of the refund policy.

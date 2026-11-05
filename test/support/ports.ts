@@ -33,6 +33,7 @@ export const slowPorts = (ports: Ports, maxMs?: number): Ports => ({
   policies: withLatency(ports.policies, maxMs),
   audit: withLatency(ports.audit, maxMs),
   claims: withLatency(ports.claims, maxMs),
+  reviews: withLatency(ports.reviews, maxMs),
 });
 
 /** Wrap a port and count how often each method is called. */

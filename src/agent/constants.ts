@@ -11,6 +11,8 @@ export const STEP = {
   CITE_POLICIES: 'cite_policies',
   DRAFT_REPLY: 'draft_reply',
   FINALIZE: 'finalize',
+  HUMAN_REVIEW: 'human_review',
+  APPLY_REVIEW: 'apply_review',
   /** Trace-only steps: tool calls made inside the `gather` node. */
   SEARCH_POLICIES: 'search_policies',
   LOOKUP_ORDER: 'lookup_order',

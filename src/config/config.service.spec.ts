@@ -98,6 +98,18 @@ describe('ConfigService', () => {
     });
   });
 
+  describe('review timing', () => {
+    it('defaults to three minutes', () => {
+      expect(ConfigService.fromObject({}).get('REVIEW_STALE_AFTER_MS')).toBe(180_000);
+    });
+
+    it('must outlast the worst-case time to answer a review (one model call), or a live answer could be taken over', () => {
+      // 1 call x (2 retries + 1) x 20 s = 60 s of timeouts
+      expect(() => ConfigService.fromObject({ REVIEW_STALE_AFTER_MS: '60000' })).toThrow(/REVIEW_STALE_AFTER_MS/);
+      expect(() => ConfigService.fromObject({ REVIEW_STALE_AFTER_MS: '60001' })).not.toThrow();
+    });
+  });
+
   describe('claim timing', () => {
     it('must outlast the worst-case model time, or a live ticket could be taken over', () => {
       // 2 calls x (2 retries + 1) x 20 s = 120 s of timeouts

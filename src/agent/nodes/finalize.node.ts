@@ -34,6 +34,7 @@ export class FinalizeNode implements AgentNode {
       summary,
       trace: state.trace,
       usage: this.usageOf(state),
+      review: state.review,
     });
 
     try {

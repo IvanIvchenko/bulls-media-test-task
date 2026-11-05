@@ -20,6 +20,6 @@ const path = values.db ?? config.get('DATABASE_PATH') ?? DEFAULT_SERVER_DATABASE
 const database = await openDatabase(path, { seedSampleOrders: false });
 const result = await new RetentionService(new RetentionRepository(database), () => new Date()).prune(days);
 console.log(
-  `Pruned ${path}: ${result.decisions} audit rows and ${result.claims} finished claims older than ${days} days.`,
+  `Pruned ${path}: ${result.decisions} audit rows, ${result.claims} finished claims and ${result.reviews} answered reviews older than ${days} days.`,
 );
 await database.destroy();

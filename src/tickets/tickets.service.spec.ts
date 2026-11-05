@@ -43,6 +43,7 @@ async function setup(options: Partial<TicketsOptions> = {}, sharedClaims?: Ticke
     staleAfterMs: 60_000,
     waitMs: 1_000,
     pollMs: 5,
+    reviewsEnabled: false,
     monotonicMs: () => performance.now(),
     ...options,
   });
@@ -132,7 +133,7 @@ describe('TicketsService', () => {
           return resultFor((raw as { ticketId: string }).ticketId);
         },
       },
-      { staleAfterMs: 60_000, waitMs: 1_000, pollMs: 5, monotonicMs: () => performance.now() },
+      { staleAfterMs: 60_000, waitMs: 1_000, pollMs: 5, reviewsEnabled: false, monotonicMs: () => performance.now() },
     );
     await expect(tickets.process(RAW)).rejects.toThrow('boom');
     expect((await tickets.process(RAW)).kind).toBe('ran');
@@ -155,6 +156,7 @@ describe('TicketsService', () => {
         staleAfterMs: 60_000,
         waitMs: 1_000,
         pollMs: 5,
+        reviewsEnabled: false,
         monotonicMs: () => performance.now(),
       },
     );

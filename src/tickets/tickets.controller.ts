@@ -17,8 +17,12 @@ export class TicketsController implements Controller {
     });
   }
 
-  /** Invalid input is the caller's mistake (400). Every other decision, including a refusal, is a successful run. */
+  /**
+   * Invalid input is the caller's mistake (400). A decision a person still has to confirm is accepted but not final
+   * (202). Every other decision, including a refusal, is a successful run.
+   */
   private statusFor(result: Result): number {
-    return result.flags.includes(FLAG.INVALID_INPUT) ? HttpStatus.BAD_REQUEST : HttpStatus.OK;
+    if (result.flags.includes(FLAG.INVALID_INPUT)) return HttpStatus.BAD_REQUEST;
+    return result.review?.status === 'pending' ? HttpStatus.ACCEPTED : HttpStatus.OK;
   }
 }

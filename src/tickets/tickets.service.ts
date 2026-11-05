@@ -41,7 +41,7 @@ export class TicketsService {
 
     let result;
     try {
-      result = await this.agent.run(raw);
+      result = await this.agent.run(raw, { reviewId: this.options.reviewsEnabled ? claimKey : undefined });
     } catch (error) {
       await this.claims.release(claimKey, acquired.token); // let a retry run
       throw error;

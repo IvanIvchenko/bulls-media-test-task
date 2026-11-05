@@ -32,6 +32,14 @@ const handoffSchema = z.object({
 });
 export type Handoff = z.infer<typeof handoffSchema>;
 
+/** Where a human review of an escalation stands. Absent when no review was involved. */
+const reviewStatusSchema = z.object({
+  status: z.enum(['pending', 'approved', 'denied']),
+  reviewer: z.string().optional(),
+  note: z.string().optional(),
+});
+export type ReviewStatus = z.infer<typeof reviewStatusSchema>;
+
 /** The structured, machine-readable result of one agent run. */
 export const resultSchema = z.object({
   ticketId: z.string(),
@@ -46,6 +54,7 @@ export const resultSchema = z.object({
   reply: z.string(),
   summary: z.string(),
   trace: z.array(traceEntrySchema),
+  review: reviewStatusSchema.optional(),
   /** Totals over the model calls in the trace. Results stored before this existed read as zero. */
   usage: z
     .object({

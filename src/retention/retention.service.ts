@@ -3,6 +3,7 @@ import type { RetentionRepository } from './retention.repository.js';
 export interface PruneResult {
   decisions: number;
   claims: number;
+  reviews: number;
 }
 
 const DAY_MS = 86_400_000;
@@ -17,13 +18,14 @@ export class RetentionService {
     private readonly now: () => Date,
   ) {}
 
-  /** Delete audit rows and finished claims older than `days` days. Safe to run repeatedly, e.g. from cron. */
+  /** Delete audit rows, finished claims and answered reviews older than `days` days. Safe to run repeatedly, e.g. from cron. */
   public async prune(days: number): Promise<PruneResult> {
     if (!Number.isFinite(days) || days <= 0) throw new RangeError('days must be a positive number');
     const cutoff = new Date(this.now().getTime() - days * DAY_MS);
     return {
       decisions: await this.repository.deleteDecisionsBefore(cutoff),
       claims: await this.repository.deleteDoneClaimsBefore(cutoff),
+      reviews: await this.repository.deleteResolvedReviewsBefore(cutoff),
     };
   }
 }

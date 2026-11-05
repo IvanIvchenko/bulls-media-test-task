@@ -139,6 +139,7 @@ describe('migrations', () => {
     expect(await db('schema_migrations').pluck('name')).toEqual([
       '001-initial-schema',
       '002-defect-claims-need-review',
+      '003-pending-reviews',
     ]);
     await db.destroy();
   });

@@ -8,6 +8,7 @@ import type {
   PolicyRule,
   PolicySnapshot,
   Result,
+  ReviewStatus,
   Ticket,
   TraceEntry,
   Verdict,
@@ -56,6 +57,9 @@ export const State = Annotation.Root({
   facts: Annotation<string[]>(replaced<string>()),
   /** Text of the rules the decision cited, shown to the reply writer. */
   policyNotes: Annotation<string[]>(replaced<string>()),
+
+  // -- human review (human_review, apply_review): the second part of a run that paused for a person
+  review: Annotation<ReviewStatus | undefined>,
 
   // -- output (draft_reply, finalize)
   reply: Annotation<string>,

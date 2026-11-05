@@ -1,6 +1,7 @@
 import type { Order } from './order.js';
 import type { PolicyConfig, PolicyRule } from './policy.js';
 import type { Result } from './result.js';
+import type { ReviewAnswer } from './review.js';
 
 /*
  * The agent's tools, as interfaces. They are defined here, on the inside, and implemented by the feature
@@ -65,6 +66,56 @@ export interface TicketClaims {
   takeOver(ticketId: string, expiredToken: ClaimToken): Promise<ClaimToken | undefined>;
   /** Store the decision. Returns false if the claim was taken over in the meantime. */
   complete(ticketId: string, token: ClaimToken, result: Result): Promise<boolean>;
+  /** Replace the stored decision of a finished claim (a human review changed it). False if there is no finished claim. */
+  replaceResult(ticketId: string, result: Result): Promise<boolean>;
   /** Give the ticket id back (the run failed, or the request was invalid) so a retry can run. */
   release(ticketId: string, token: ClaimToken): Promise<void>;
+}
+
+/** A run paused for a human: what the reviewer sees, and the graph thread (saved in the database) to resume. */
+export interface NewReview {
+  reviewId: string;
+  ticketId: string;
+  threadId: string;
+  /** The escalation as the customer received it, with `review.status` pending. */
+  request: Result;
+}
+
+export interface ReviewRecord extends NewReview {
+  status: 'pending' | 'deciding' | 'resolved';
+}
+
+export interface ReviewSummary {
+  reviewId: string;
+  ticketId: string;
+  summary: string;
+  createdAt: Date;
+}
+
+/** Proof that a caller is the one deciding a review. A caller whose review was taken over no longer holds a valid one. */
+export type ReviewToken = string;
+
+export interface ReviewLease {
+  review: ReviewRecord;
+  token: ReviewToken;
+}
+
+/**
+ * Paused runs waiting for a person. The database is the referee, so exactly one decision wins even across instances,
+ * and a decision whose owner died does not block the review for ever: after `staleAfterMs` another caller takes over.
+ */
+export interface ReviewStore {
+  /** Record a paused run. Replaces an earlier pending one with the same id (a run that was repeated after a crash). */
+  open(review: NewReview): Promise<void>;
+  list(): Promise<ReviewSummary[]>;
+  find(reviewId: string): Promise<ReviewRecord | undefined>;
+  /**
+   * Atomically move a pending review to "deciding", or take over one whose decider has not finished for longer than
+   * `staleAfterMs` (by the database's clock). Returns a lease for exactly one caller; undefined for everyone else.
+   */
+  begin(reviewId: string, staleAfterMs: number): Promise<ReviewLease | undefined>;
+  /** Put a review back to pending (the decision could not be applied). A no-op for a token that was taken over. */
+  release(reviewId: string, token: ReviewToken): Promise<void>;
+  /** Mark it decided. False if the token was taken over in the meantime: this caller is fenced out. */
+  resolve(reviewId: string, token: ReviewToken, answer: ReviewAnswer): Promise<boolean>;
 }

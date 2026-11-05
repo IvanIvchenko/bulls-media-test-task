@@ -64,6 +64,7 @@ export const blank = (): AgentState => ({
   flags: [],
   trace: [],
   result: undefined,
+  review: undefined,
 });
 export const stateWith = (patch: Partial<AgentState>): AgentState => ({ ...blank(), ...patch });
 

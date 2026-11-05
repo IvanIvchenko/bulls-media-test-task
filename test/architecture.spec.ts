@@ -67,6 +67,8 @@ const ALLOWED_LAYERS: Record<string, string[]> = {
   policies: ['domain', 'db', 'shared'],
   audit: ['domain', 'db', 'shared'],
   claims: ['domain', 'db', 'shared'],
+  reviews: ['domain', 'db', 'shared'],
+  approvals: ['domain', 'shared'],
   retention: ['db'],
   llm: ['domain', 'guardrails', 'config', 'shared'],
   health: ['shared'],
@@ -80,16 +82,18 @@ const ALLOWED_PACKAGES: Record<string, string[]> = {
   shared: ['pino', 'fastify', 'node:'],
   config: ['zod'],
   guardrails: [],
-  db: ['knex', 'zod', 'node:'],
+  db: ['knex', 'zod', 'node:', '@langchain/langgraph', '@langchain/langgraph-checkpoint'],
   orders: [],
   policies: [],
   audit: [],
   claims: ['node:'],
+  reviews: ['node:'],
+  approvals: ['fastify', 'node:'],
   retention: [],
   llm: ['@anthropic-ai/sdk'],
   health: ['fastify'],
   tickets: ['fastify', 'node:'],
-  agent: ['@langchain/langgraph'],
+  agent: ['@langchain/langgraph', 'node:'],
 };
 
 /** Imports that break the layer rules, as readable strings. */
@@ -147,11 +151,16 @@ describe('architecture: infrastructure stays where it belongs', () => {
     expect(packageViolations(all)).toEqual([]);
   });
 
-  it('only the db layer imports the database library, only llm the model SDK, only agent the graph library', () => {
+  it('only the db layer imports the database library, only llm the model SDK, only agent and the checkpoint saver the graph library', () => {
     const users = (pkg: string) => [...new Set(all.filter((imp) => imp.spec === pkg).map((imp) => layerOf(imp.from)))];
     expect(users('knex').filter((layer) => !ENTRY_LAYERS.has(layer))).toEqual(['db']);
     expect(users('@anthropic-ai/sdk')).toEqual(['llm']);
-    expect(users('@langchain/langgraph')).toEqual(['agent']);
+    expect(users('@langchain/langgraph').sort()).toEqual(['agent', 'db']);
+    // In db/ only the checkpoint saver, which implements the library's storage interface, may touch it.
+    const dbFiles = all
+      .filter((imp) => /^@langchain\//.test(imp.spec) && layerOf(imp.from) === 'db')
+      .map((imp) => imp.from);
+    expect([...new Set(dbFiles)]).toEqual(['db/knex-checkpoint.saver.ts']);
   });
 
   it('services never read process.env: only the config entry reads it', () => {
@@ -163,6 +172,19 @@ describe('architecture: infrastructure stays where it belongs', () => {
     expect(offenders).toEqual([]);
   });
 });
+
+/** `throw new X(...)` for any error class but BusinessLogicError. Rethrowing a caught `error` is not matched. */
+const throwsRawError = (text: string) => /throw new (?!BusinessLogicError\b)\w*Error\(/.test(text);
+
+/**
+ * The only places allowed to throw a raw error, each for a reason. The usual rule stands: an error that can reach a
+ * caller is a BusinessLogicError with an ErrorCodes entry, so the error filter can answer with `{ code, message }`.
+ * These two layers cannot import `shared/`, and what they throw is a programming mistake, never a business outcome.
+ */
+const RAW_ERRORS_ALLOWED: Record<string, string> = {
+  'db/knex-checkpoint.saver.ts': "misuse of LangGraph's checkpointer interface by the library's caller (no thread_id)",
+  'retention/retention.service.ts': 'argument check of a maintenance command; the CLI validates the same input first',
+};
 
 describe('architecture: code conventions', () => {
   const files = listFiles(SRC).map((file) => ({ path: relative(SRC, file), text: readFileSync(file, 'utf8') }));
@@ -180,9 +202,16 @@ describe('architecture: code conventions', () => {
     expect(bad).toEqual([]);
   });
 
-  it('no raw `new Error(...)` is thrown from services: use BusinessLogicError', () => {
-    const offenders = files.filter((file) => /throw new Error\(/.test(file.text)).map((file) => file.path);
-    expect(offenders).toEqual([]);
+  it('no raw Error (Error, TypeError, RangeError...) is thrown: use BusinessLogicError, except where listed', () => {
+    const offenders = files.filter((file) => throwsRawError(file.text) && !(file.path in RAW_ERRORS_ALLOWED));
+    expect(offenders.map((file) => file.path)).toEqual([]);
+  });
+
+  it('keeps the list of allowed raw errors honest: every entry still throws one', () => {
+    const stale = Object.keys(RAW_ERRORS_ALLOWED).filter(
+      (path) => !files.some((file) => file.path === path && throwsRawError(file.text)),
+    );
+    expect(stale).toEqual([]);
   });
 
   it('injected dependencies are never public or mutable (private readonly)', () => {
@@ -230,5 +259,18 @@ describe('architecture: the checker itself works', () => {
     ).toHaveLength(1);
     expect(layerViolations([fake('db/x.ts', '../agent/agent.service.js', 'agent/agent.service')])).toHaveLength(1);
     expect(layerViolations([fake('tickets/x.ts', '../db/database.client.js', 'db/database.client')])).toHaveLength(1);
+  });
+
+  it('recognises a raw error of any kind, and leaves BusinessLogicError and rethrows alone', () => {
+    for (const bad of ['throw new Error("x")', 'throw new TypeError(x)', 'if (a) throw new RangeError(`x`)']) {
+      expect(throwsRawError(bad), bad).toBe(true);
+    }
+    for (const fine of [
+      'throw new BusinessLogicError("x", ErrorCodes.NOT_FOUND)',
+      'throw error;',
+      'const e = new Error("kept, not thrown")',
+    ]) {
+      expect(throwsRawError(fine), fine).toBe(false);
+    }
   });
 });

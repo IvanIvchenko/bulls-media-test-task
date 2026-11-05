@@ -15,4 +15,7 @@ export const TABLE = {
   POLICY_RULES: 'policy_rules',
   POLICY_SETTINGS: 'policy_settings',
   CATEGORY_RULES: 'category_rules',
+  PENDING_REVIEWS: 'pending_reviews',
+  GRAPH_CHECKPOINTS: 'graph_checkpoints',
+  GRAPH_WRITES: 'graph_writes',
 } as const;

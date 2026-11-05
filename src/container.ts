@@ -1,12 +1,21 @@
 import { AgentService } from './agent/agent.service.js';
+import { ApprovalsService } from './approvals/approvals.service.js';
 import { AuditRepository } from './audit/audit.repository.js';
 import { AuditService } from './audit/audit.service.js';
 import { ClaimsMapper } from './claims/claims.mapper.js';
 import { ClaimsRepository } from './claims/claims.repository.js';
 import { ClaimsService } from './claims/claims.service.js';
 import type { ConfigService } from './config/config.service.js';
+import { KnexCheckpointSaver } from './db/knex-checkpoint.saver.js';
 import type { Database } from './db/typedef.js';
-import { RULE, type AuditTrail, type OrderTools, type PolicyTools, type TicketClaims } from './domain/index.js';
+import {
+  RULE,
+  type AuditTrail,
+  type OrderTools,
+  type PolicyTools,
+  type ReviewStore,
+  type TicketClaims,
+} from './domain/index.js';
 import { HealthService } from './health/health.service.js';
 import { createLlm } from './llm/llm.factory.js';
 import type { LLM } from './llm/typedef.js';
@@ -16,6 +25,9 @@ import { OrdersService } from './orders/orders.service.js';
 import { PoliciesMapper } from './policies/policies.mapper.js';
 import { PoliciesRepository } from './policies/policies.repository.js';
 import { PoliciesService } from './policies/policies.service.js';
+import { ReviewsMapper } from './reviews/reviews.mapper.js';
+import { ReviewsRepository } from './reviews/reviews.repository.js';
+import { ReviewsService } from './reviews/reviews.service.js';
 import { TicketsService } from './tickets/tickets.service.js';
 
 /** The storage the rest of the app sees: interfaces only, every call async. */
@@ -24,6 +36,7 @@ export interface Ports {
   policies: PolicyTools;
   audit: AuditTrail;
   claims: TicketClaims;
+  reviews: ReviewStore;
 }
 
 export interface ContainerOptions {
@@ -43,6 +56,8 @@ export interface Container extends Ports {
   llm: LLM;
   agent: AgentService;
   tickets: TicketsService;
+  /** Present only when REVIEW_TOKEN is set: human review of escalations is off without it. */
+  approvals?: ApprovalsService;
   health: HealthService;
   /** Startup check: the database must contain every rule and setting the code depends on. */
   verify(): Promise<void>;
@@ -56,6 +71,7 @@ export function createPorts(database: Database): Ports & { policies: PoliciesSer
     policies: new PoliciesService(new PoliciesRepository(database), new PoliciesMapper()),
     audit: new AuditService(new AuditRepository(database)),
     claims: new ClaimsService(new ClaimsRepository(database), new ClaimsMapper()),
+    reviews: new ReviewsService(new ReviewsRepository(database), new ReviewsMapper()),
   };
 }
 
@@ -66,11 +82,12 @@ export function createContainer(options: ContainerOptions): Container {
   const defaults = createPorts(database);
   const ports: Ports = { ...defaults, ...options.ports };
 
-  const agent = new AgentService({ llm, ...ports, now });
+  const agent = new AgentService({ llm, ...ports, checkpointer: new KnexCheckpointSaver(database), now });
   const tickets = new TicketsService(ports.claims, agent, {
     staleAfterMs: config.get('CLAIM_STALE_AFTER_MS'),
     waitMs: config.get('CLAIM_WAIT_MS'),
     pollMs: config.get('CLAIM_POLL_MS'),
+    reviewsEnabled: Boolean(config.get('REVIEW_TOKEN')),
     monotonicMs: () => performance.now(),
   });
   const health = new HealthService(async () => void (await database.raw('select 1')), llm.name);
@@ -82,6 +99,9 @@ export function createContainer(options: ContainerOptions): Container {
     ...ports,
     agent,
     tickets,
+    approvals: config.get('REVIEW_TOKEN')
+      ? new ApprovalsService(ports.reviews, ports.claims, agent, config.get('REVIEW_STALE_AFTER_MS'))
+      : undefined,
     health,
     // Always checks the real database, even when a test swaps a port for a fake.
     verify: () => defaults.policies.assertRulesExist(Object.values(RULE)),

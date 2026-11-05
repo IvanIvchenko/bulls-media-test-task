@@ -1,9 +1,11 @@
 import { FLAG, ORDER_ID_PREFIX } from './constants.js';
 import type { Eligibility } from './eligibility.js';
+import { roundMoney } from './money.js';
 import type { Order } from './order.js';
 import { RULE } from './policy.js';
 import { refundQuoteIsInTicket } from './refund-request.js';
 import type { Result } from './result.js';
+import type { ReviewAnswer } from './review.js';
 import type { Classification, Ticket } from './ticket.js';
 
 export type Verdict = Result['decision'];
@@ -149,5 +151,57 @@ export function refundFailureOutcome(reason: 'not_found' | 'already_refunded', o
     'escalate',
     ['The refund could not be recorded (order not found).'],
     [orderFact, ...HUMAN_REVIEW_FACTS],
+  );
+}
+
+const reviewNote = (answer: ReviewAnswer) => `${answer.reviewer}${answer.note ? `: ${answer.note}` : ''}`;
+
+/**
+ * What a reviewer's yes or no turns into. The amount is the order's, never anything the reviewer typed, and the
+ * customer-facing facts never contain the reviewer's name or note (those are for the audit trail).
+ */
+export function reviewedOutcome(answer: ReviewAnswer, order: Order, citations: string[]): Outcome {
+  const orderFact = `Regarding order ${order.orderId} (${order.item}).`;
+  if (answer.action === 'deny') {
+    return buildOutcome(
+      'deny',
+      [`Declined after review by ${reviewNote(answer)}.`],
+      [orderFact, 'After a review by our team, we are not able to refund this order.'],
+      citations,
+    );
+  }
+  return buildOutcome(
+    'approve',
+    [`Approved after review by ${reviewNote(answer)}.`],
+    [orderFact, 'Our team reviewed your request before this was approved.'],
+    citations,
+    order.amount,
+  );
+}
+
+/**
+ * What differs between the order the reviewer was shown and the order as it is when the refund would be paid, if
+ * anything that matters for paying it: the amount, the category, or an order that is no longer delivered.
+ */
+export function orderChangedSince(before: Order, after: Order): string | undefined {
+  if (roundMoney(before.amount) !== roundMoney(after.amount)) {
+    return `the amount went from ${before.amount.toFixed(2)} to ${after.amount.toFixed(2)}`;
+  }
+  if (before.category !== after.category) return `the category went from ${before.category} to ${after.category}`;
+  if (after.status !== 'delivered') return `the status is now ${after.status}`;
+  return undefined;
+}
+
+/** The reviewer approved, but the order is no longer what they approved: pay nothing and send it back to a person. */
+export function orderChangedOutcome(what: string, order: Order, citations: string[]): Outcome {
+  return buildOutcome(
+    'escalate',
+    [`The order changed after the review (${what}), so nothing was refunded. A person must look at it again.`],
+    [
+      `Regarding order ${order.orderId} (${order.item}).`,
+      'Something about your order changed while we were reviewing it, so we need to take another look before any refund.',
+      ...HUMAN_REVIEW_FACTS,
+    ],
+    citations,
   );
 }

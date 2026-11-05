@@ -1,6 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { BusinessLogicError } from '../errors/business-logic-error.js';
+import { ErrorCodes } from '../errors/error-codes.js';
 import { HttpStatus } from '../http-status.js';
 import { Logger } from '../logger/logger.js';
 
@@ -35,6 +36,8 @@ export class ErrorFilter {
   }
 
   public notFound(reply: FastifyReply): FastifyReply {
-    return reply.status(HttpStatus.NOT_FOUND).send({ code: 'NOT_FOUND', message: 'Route not found' });
+    return reply
+      .status(ErrorCodes.NOT_FOUND.status)
+      .send({ code: ErrorCodes.NOT_FOUND.code, message: 'Route not found' });
   }
 }

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import Fastify, { type FastifyBaseLogger } from 'fastify';
 
+import { ApprovalsController } from './approvals/approvals.controller.js';
 import type { Container } from './container.js';
 import { HealthController } from './health/health.controller.js';
 import { ErrorFilter } from './shared/filters/error.filter.js';
@@ -45,6 +46,8 @@ export function buildServer(container: Container) {
 
   new HealthController(container.health).register(app);
   new TicketsController(container.tickets).register(app);
+  const reviewToken = container.config.get('REVIEW_TOKEN');
+  if (container.approvals && reviewToken) new ApprovalsController(container.approvals, reviewToken).register(app);
 
   return app;
 }

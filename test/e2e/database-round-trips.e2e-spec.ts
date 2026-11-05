@@ -6,7 +6,13 @@ import { counted } from '../support/ports.js';
 
 /** Container whose storage calls are counted per port method. */
 async function countingContainer() {
-  const counters: Record<keyof Ports, Record<string, number>> = { orders: {}, policies: {}, audit: {}, claims: {} };
+  const counters: Record<keyof Ports, Record<string, number>> = {
+    orders: {},
+    policies: {},
+    audit: {},
+    claims: {},
+    reviews: {},
+  };
   const container = await createTestContainer({
     wrapPorts: (ports) => {
       const wrapped = {} as Ports;

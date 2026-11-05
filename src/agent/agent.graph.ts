@@ -1,4 +1,4 @@
-import { END, START, StateGraph } from '@langchain/langgraph';
+import { END, START, StateGraph, type BaseCheckpointSaver } from '@langchain/langgraph';
 
 import { State } from './agent.state.js';
 import { STEP } from './constants.js';
@@ -17,7 +17,9 @@ export type AgentNodes = Record<
   | typeof STEP.EXECUTE_REFUND
   | typeof STEP.CITE_POLICIES
   | typeof STEP.DRAFT_REPLY
-  | typeof STEP.FINALIZE,
+  | typeof STEP.FINALIZE
+  | typeof STEP.HUMAN_REVIEW
+  | typeof STEP.APPLY_REVIEW,
   AgentNode
 >;
 
@@ -39,6 +41,7 @@ const afterDecide = (state: AgentState) => (state.decision === 'approve' ? STEP.
 
 const run = (node: AgentNode) => (state: AgentState) => node.execute(state);
 
+/** The workflow: ticket in, decision and reply out. It never pauses and never touches a checkpointer. */
 export function buildGraph(nodes: AgentNodes) {
   return new StateGraph(State)
     .addNode(STEP.VALIDATE, run(nodes.validate))
@@ -65,4 +68,23 @@ export function buildGraph(nodes: AgentNodes) {
     .addEdge(STEP.DRAFT_REPLY, STEP.FINALIZE)
     .addEdge(STEP.FINALIZE, END)
     .compile();
+}
+
+/**
+ * The part of a run that waits for a person. It starts from the state the workflow ended with, pauses at once
+ * (`human_review` calls `interrupt()`), and on resume applies the answer and answers the customer again. Only runs
+ * that reach this graph are saved, so a ticket that never needs a reviewer writes nothing extra.
+ */
+export function buildReviewGraph(nodes: AgentNodes, checkpointer: BaseCheckpointSaver) {
+  return new StateGraph(State)
+    .addNode(STEP.HUMAN_REVIEW, run(nodes.human_review))
+    .addNode(STEP.APPLY_REVIEW, run(nodes.apply_review))
+    .addNode(STEP.DRAFT_REPLY, run(nodes.draft_reply))
+    .addNode(STEP.FINALIZE, run(nodes.finalize))
+    .addEdge(START, STEP.HUMAN_REVIEW)
+    .addEdge(STEP.HUMAN_REVIEW, STEP.APPLY_REVIEW)
+    .addEdge(STEP.APPLY_REVIEW, STEP.DRAFT_REPLY)
+    .addEdge(STEP.DRAFT_REPLY, STEP.FINALIZE)
+    .addEdge(STEP.FINALIZE, END)
+    .compile({ checkpointer });
 }

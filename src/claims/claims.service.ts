@@ -26,6 +26,10 @@ export class ClaimsService implements TicketClaims {
     return this.repository.markDone(ticketId, token, JSON.stringify(result));
   }
 
+  public async replaceResult(ticketId: string, result: Result): Promise<boolean> {
+    return this.repository.replaceResult(ticketId, JSON.stringify(result));
+  }
+
   public async release(ticketId: string, token: ClaimToken): Promise<void> {
     await this.repository.deleteInProgress(ticketId, token);
   }

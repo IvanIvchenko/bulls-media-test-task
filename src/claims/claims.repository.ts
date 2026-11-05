@@ -53,6 +53,14 @@ export class ClaimsRepository {
     return updated === 1;
   }
 
+  /** Only a finished claim has a decision to replace. */
+  public async replaceResult(ticketId: string, resultJson: string): Promise<boolean> {
+    const updated = await this.database(TABLE.TICKET_CLAIMS)
+      .where({ ticket_id: ticketId, status: 'done' })
+      .update({ result_json: resultJson });
+    return updated === 1;
+  }
+
   public async deleteInProgress(ticketId: string, ownerToken: string): Promise<void> {
     await this.database(TABLE.TICKET_CLAIMS)
       .where({ ticket_id: ticketId, owner_token: ownerToken, status: IN_PROGRESS })

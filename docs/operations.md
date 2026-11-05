@@ -11,6 +11,8 @@ Running the agent as a service, and what keeps it correct when several instances
 | `POST /tickets` | JSON body. Returns the result; 400 for invalid input |
 | `GET /health`   | Database check; 503 if unreachable                   |
 
+With `REVIEW_TOKEN` set there are also `GET /reviews`, `GET /reviews/:id` and `POST /reviews/:id/decision` (see below).
+
 ```bash
 curl -s -X POST localhost:3000/tickets -H 'content-type: application/json' \
   -d '{"ticketId":"T-100","customerEmail":"anna@example.com","orderId":"ORD-1001","subject":"Refund","body":"Changed my mind about the headphones."}'
@@ -19,6 +21,28 @@ curl -s -X POST localhost:3000/tickets -H 'content-type: application/json' \
 Errors are always `{ code, message }`. Every response carries an `X-Request-Id` (a client-sent one is reused) that appears on every log line of that request. Responses are `Cache-Control: no-store`.
 
 **There is no authentication.** It binds to localhost by default; put a gateway in front before exposing it. The result JSON is for trusted systems (its trace says whether an order exists); forward only `reply` to customers.
+
+## Human review of escalations
+
+Off by default. Set `REVIEW_TOKEN` (16+ characters) and the agent pauses on the escalations a person can settle: a refund request on a verified order (over the limit, digital goods, a defect claim after the return window, an unconfirmed request). Hostile, unverified, out-of-scope and already-refunded tickets are not paused: they go to a human outside the agent, as before.
+
+How it runs:
+
+- The customer is answered at once with the usual escalation reply. `POST /tickets` returns **202** with `review: { status: "pending" }`, and the review is queued. An identical resend replays that answer.
+- `GET /reviews` lists waiting reviews (oldest first). `GET /reviews/:id` shows one escalation. `POST /reviews/:id/decision` with `{ "action": "approve" | "deny", "reviewer": "Maria", "note": "..." }` answers it. The id is the claim key (`T-001:<sender digest>`), URL-encoded.
+- All three need `Authorization: Bearer <REVIEW_TOKEN>`. There are no accounts: whoever holds the token is the reviewer, and `reviewer` is the name they give. Put a gateway in front for anything real.
+- The saved state of a paused run (`graph_checkpoints`, `graph_writes`) holds the ticket text and the sender's email until the review is answered, then it is deleted. Treat those tables like the rest of the customer data.
+- The order is read again at the moment of payment. If it changed since the reviewer saw it (a corrected amount, a new category, no longer delivered, gone, or refunded by another ticket) nothing is refunded: a refunded order is denied as such, any other change goes back to a person (`decision: escalate`, the reason in `reasons`).
+- The reviewer decides **whether**, never how much: an approval refunds the order's own amount through the same guarded `recordRefund`, so a double click or a second reviewer cannot pay twice. The reply is redrafted and a second audit row is written. The reviewer's name and note go to the audit trail and the result's `summary`, never into the customer's reply.
+- The ticket's stored decision is replaced by the final one, so a later resend returns it (200, `review.status` `approved` or `denied`).
+- Exactly one answer wins, across instances: a second gets `409 REVIEW_NOT_PENDING`. If an instance dies while answering, the review is not stuck: after `REVIEW_STALE_AFTER_MS` (default 3 minutes, by the database's clock) the next answer takes it over, the same way a stale ticket claim is taken over. The token the first decider held no longer works, so if it comes back it cannot record anything, and its caller gets the same 409. If the run cannot be continued, or recording the answer fails, the review goes back to waiting and its saved run is kept.
+- A retry carries on from the last saved step, so an answer that was already applied (money may have moved on it) stands even if the retry is someone else's. The review is recorded with the answer that was applied, and any other reviewer gets `409 REVIEW_ALREADY_ANSWERED` naming it, even if their answer says the same thing, so nobody believes they decided when they did not. A reviewer retrying their own answer after a failure is not told that: it is theirs. `review` in the result is what the reviewer answered; `decision` is the outcome (an approval the store then refused is a denial).
+
+How a run pauses (LangGraph): the workflow graph runs the ticket as always. If it ends in an escalation a reviewer can settle, the run continues in a second, small graph: `human_review` calls `interrupt()` and the run stops there. Resuming sends a `Command({ resume })`, an `apply_review` node turns the answer into a decision, and the reply is redrafted and recorded. Only that second graph has a checkpointer, so only paused runs are saved and a ticket that never needs a reviewer writes nothing extra.
+
+The checkpointer is `KnexCheckpointSaver` (`src/db/knex-checkpoint.saver.ts`), an implementation of LangGraph's `BaseCheckpointSaver` on the application's own Knex handle. Paused state therefore lives in the same database as everything else that decides correctness, and any instance can resume it, including after a restart. The ready-made `@langchain/langgraph-checkpoint-sqlite` and `-postgres` savers were not used because each opens its own driver connection, which would break two rules here: one SQLite connection per process (a second can deadlock the synchronous driver) and no driver types outside `db/`. Its spec runs the same pause-and-resume graph on this saver and on the library's in-memory saver and requires identical results. Resuming is safe to repeat: if applying an answer failed part way, a retry carries on from the last saved step.
+
+Limits: a review never expires and nobody is notified (poll `GET /reviews`); `db:prune` removes answered reviews with the rest. There is no per-reviewer identity, rate limiting or audit of who held the token.
 
 ## Idempotency
 
@@ -44,7 +68,7 @@ Data access goes through Knex, not the SQLite driver. Repositories use the query
 - Policy rules, windows and the approval limit are rows (`policy_settings`, `category_rules`, `policy_rules`): `UPDATE policy_settings SET value = 500 WHERE key = 'auto_approve_limit'` changes behaviour with no deploy. A bad row is a bad policy, so restrict write access to these tables. Required rows are validated at startup.
 - Every decision is appended to `decisions` (audit).
 - `npm run db:seed` creates `data/store.db` to inspect or keep state between runs.
-- `npm run db:prune -- --days 90` deletes decisions and finished claims older than 90 days. It never touches refunds or claims still in progress, and `--days` has no default.
+- `npm run db:prune -- --days 90` deletes decisions, finished claims and answered reviews older than 90 days. It never touches refunds or claims still in progress, and `--days` has no default.
 
 ## Configuration
 
@@ -62,6 +86,8 @@ Validated at startup and read only through `ConfigService`.
 | `NODE_ENV`                                               | `development`                            |
 | `REQUIRE_LLM`                                            | `true` in production, else `false`       |
 | `SEED_SAMPLE_ORDERS`                                     | `false` in production, else `true`       |
+| `REVIEW_TOKEN`                                           | unset: no human review                   |
+| `REVIEW_STALE_AFTER_MS`                                  | `180000`                                 |
 | `LOG_LEVEL`                                              | `info`                                   |
 
 `CLAIM_STALE_AFTER_MS` must exceed the worst-case model time (2 calls x (retries + 1) x timeout); startup fails otherwise. With `NODE_ENV=production` the service refuses to start without a key and does not seed demo orders.

@@ -16,5 +16,10 @@ export const DEFAULT_CLAIM_STALE_AFTER_MS = 180_000;
 export const DEFAULT_CLAIM_WAIT_MS = 30_000;
 export const DEFAULT_CLAIM_POLL_MS = 200;
 
+/** A review whose decider has not finished after this long is presumed dead and may be taken over. */
+export const DEFAULT_REVIEW_STALE_AFTER_MS = 180_000;
+/** Answering a review makes one model call (the redrafted reply). */
+export const MODEL_CALLS_PER_REVIEW = 1;
+
 export const LOG_LEVELS = ['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent'] as const;
 export const DEFAULT_SERVER_DATABASE_PATH = 'data/store.db';
