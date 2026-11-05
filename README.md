@@ -10,7 +10,7 @@ Needs Node 22.13+ (`nvm use` picks it; older versions stop at `npm install` with
 
 ```bash
 npm install
-npm run samples                                            # 14 tickets through the agent, each checked against its expected decision
+npm run samples                                            # 15 tickets through the agent, each checked against its expected decision
 npm start -- --file samples/13-defect-after-window-escalated.json   # one ticket: decision, reply, JSON (add --json for the full trace)
 npm run check                                              # typecheck, lint, format, all tests
 ```
@@ -31,22 +31,23 @@ The agent resolves routine cases, **refuses** unverifiable ones and **escalates*
 
 ## 3. Business cases
 
-| #   | Case                                               | Outcome                         | Sample |
-| --- | -------------------------------------------------- | ------------------------------- | ------ |
-| 1   | In-window refund under the limit                   | `approve`, refund recorded      | 01     |
-| 2   | Valid refund above the 100.00 limit                | `escalate`                      | 02     |
-| 3   | Digital goods                                      | `escalate` (legal exceptions)   | 03     |
-| 4   | Outside the 30-day window                          | `deny`                          | 04     |
-| 5   | Already refunded                                   | `deny`                          | 05     |
-| 6   | Final-sale item                                    | `deny`                          | 06     |
-| 7   | Email does not match the order                     | `refuse`, nothing disclosed     | 07     |
-| 8   | Prompt injection                                   | `escalate`, tools never touched | 08     |
-| 9   | Order status                                       | `info`                          | 09     |
-| 10  | Out of scope                                       | `escalate`                      | 10     |
-| 11  | Malformed input                                    | `refuse`, LLM never called      | 11     |
-| 12  | Refund without an order id                         | `info` (asks for it)            | 12     |
-| 13  | Defect claim 55 days after delivery (past 30 days) | `escalate`, never auto-approved | 13     |
-| 14  | Unknown order id                                   | `refuse`, same reply as case 7  | 14     |
+| #   | Case                                               | Outcome                                   | Sample |
+| --- | -------------------------------------------------- | ----------------------------------------- | ------ |
+| 1   | In-window refund under the limit                   | `approve`, refund recorded                | 01     |
+| 2   | Valid refund above the 100.00 limit                | `escalate`                                | 02     |
+| 3   | Digital goods                                      | `escalate` (legal exceptions)             | 03     |
+| 4   | Outside the 30-day window                          | `deny`                                    | 04     |
+| 5   | Already refunded                                   | `deny`                                    | 05     |
+| 6   | Final-sale item                                    | `deny`                                    | 06     |
+| 7   | Email does not match the order                     | `refuse`, nothing disclosed               | 07     |
+| 8   | Prompt injection                                   | `escalate`, tools never touched           | 08     |
+| 9   | Order status                                       | `info`                                    | 09     |
+| 10  | Out of scope                                       | `escalate`                                | 10     |
+| 11  | Malformed input                                    | `refuse`, LLM never called                | 11     |
+| 12  | Refund without an order id                         | `info` (asks for it)                      | 12     |
+| 13  | Defect claim 55 days after delivery (past 30 days) | `escalate`, never auto-approved           | 13     |
+| 14  | Unknown order id                                   | `refuse`, same reply as case 7            | 14     |
+| 15  | Order id written loosely (`#1001`, no id field)    | `approve` (normalised, ownership checked) | 15     |
 
 ## 4. Architecture overview
 
@@ -71,7 +72,7 @@ src/
   orders/ policies/ audit/ claims/   storage behind the interfaces in domain/ports.ts
   tickets/ health/ db/ retention/ config/ shared/ cli/   HTTP service and plumbing (see docs/operations.md)
 test/          e2e and architecture specs; unit specs sit beside the code (*.spec.ts)
-samples/       14 tickets with expected decisions
+samples/       15 tickets with expected decisions
 ```
 
 Dependencies point inward and the agent sees storage only through interfaces, so it runs against plain fakes. `test/architecture.spec.ts` enforces this, plus the conventions in [AGENTS.md](AGENTS.md).
@@ -120,14 +121,14 @@ Configuration is validated at startup. The other variables (database, HTTP, clai
 
 ```bash
 npm start -- --file samples/01-refund-approved.json [--json]   # one ticket
-npm run samples                                                # all 14
+npm run samples                                                # all 15
 ```
 
 ## 6. How to test and verify
 
 ```bash
 npm run check            # typecheck + eslint + prettier + all tests
-npm run samples          # 14 sample tickets against their expected decisions
+npm run samples          # 15 sample tickets against their expected decisions
 npm run test:live        # optional, needs ANTHROPIC_API_KEY: real-model tests
 ```
 
@@ -203,7 +204,7 @@ An injection attempt (sample 08) gives `escalate` with flag `prompt_injection_su
 - Reply checks and injection scoring are English-only regexes. A draft in another language is rejected and the English template is sent; an injection in another language is not scored (the fence, the quote check and the code-made decision still apply).
 - The refund-request quote is checked for existing in the ticket, not for meaning.
 - Policy search is keyword ranking, deterministic and offline. It cannot match paraphrases; embeddings would.
-- Orders are sample data: no real payment, email or ticketing integration. No memory across tickets.
+- Orders are sample data: no real payment, email or ticketing integration. No memory across tickets. The order id (`ORD-1001`) is also the primary key of `orders`, and `refunds` points at it. In production the shop or ERP owns order ids and their format changes over time, so the table would get its own surrogate key plus a unique public order number. The format itself is defined once (`ORDER_ID_PATTERN` in `src/domain/constants.ts`), and a test fails if a second copy appears.
 - SQLite storage, claim handling and the HTTP service have their own limits: see [docs/operations.md](docs/operations.md).
 
 Next: human approval for escalations (LangGraph `interrupt()` + checkpointer), real integrations, an LLM eval set, tracing export (OpenTelemetry), authentication and rate limiting, a networked SQL database.

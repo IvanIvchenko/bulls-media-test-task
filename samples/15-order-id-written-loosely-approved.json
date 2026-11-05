@@ -1,0 +1,1 @@
+{ "description": "No order id field; the customer writes \"order #1001\" -> normalised to ORD-1001, ownership still checked -> approve", "input": { "ticketId": "T-015", "customerEmail": "anna@example.com", "subject": "Refund please", "body": "I changed my mind about the headphones from order #1001, I would like my money back." }, "expected": { "decision": "approve" } }

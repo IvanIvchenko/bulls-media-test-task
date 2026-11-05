@@ -1,5 +1,19 @@
 import type { LLM, LlmCall } from './typedef.js';
-import { templateReply, type Classification, type LlmUsage, type ReplyContext, type Ticket } from '../domain/index.js';
+import {
+  ORDER_ID_PREFIX,
+  templateReply,
+  type Classification,
+  type LlmUsage,
+  type ReplyContext,
+  type Ticket,
+} from '../domain/index.js';
+
+/** What the real model is asked to do: "#1001", "ord 1001" and the full id all come out as the canonical id. */
+const MENTION = /(?:\bord[-\s]?|#)(\d{4,8})\b/i;
+const mentionedOrderId = (text: string): string | null => {
+  const digits = text.match(MENTION)?.[1];
+  return digits ? `${ORDER_ID_PREFIX}${digits}` : null;
+};
 
 const MOCK_USAGE: LlmUsage = { model: 'mock', inputTokens: 0, outputTokens: 0, attempts: 1 };
 
@@ -9,7 +23,7 @@ export class MockLlmService implements LLM {
 
   public async classify(ticket: Ticket): Promise<LlmCall<Classification>> {
     const text = `${ticket.subject} ${ticket.body}`.toLowerCase();
-    const orderIdMentioned = `${ticket.subject} ${ticket.body}`.match(/ORD-\d{4,8}/)?.[0] ?? null;
+    const orderIdMentioned = mentionedOrderId(`${ticket.subject} ${ticket.body}`);
     const refund = /refund|money back|return|broken|defective|doesn'?t work|not working/.test(text);
     const status = /where is|tracking|status|when will/.test(text);
     const intent = refund ? 'refund_request' : status ? 'order_status' : 'other';

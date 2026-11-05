@@ -1,5 +1,6 @@
+import { orderIdsIn, withoutOrderIds } from '../domain/index.js';
+
 const MAX_REPLY_CHARS = 1500;
-const ORDER_ID = /ORD-\d{4,8}/g;
 const NUMBER = /\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:[.,]\d+)?/g;
 const AMOUNT_TOLERANCE = 0.005;
 
@@ -43,7 +44,7 @@ export interface ReplyCheckContext {
 }
 
 const numbersIn = (text: string): number[] =>
-  (text.replace(ORDER_ID, ' ').match(NUMBER) ?? []).map((token) =>
+  (withoutOrderIds(text).match(NUMBER) ?? []).map((token) =>
     Number(token.replace(/,(?=\d{3}\b)/g, '').replace(',', '.')),
   );
 
@@ -70,7 +71,7 @@ export function checkReply(reply: string, ctx: ReplyCheckContext): string[] {
     problems.push('reply contains a web address');
   }
 
-  for (const id of reply.match(ORDER_ID) ?? []) {
+  for (const id of orderIdsIn(reply)) {
     if (!ctx.orderIds.includes(id)) problems.push(`reply mentions unrelated order ${id}`);
   }
 

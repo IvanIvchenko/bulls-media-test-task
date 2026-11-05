@@ -1,4 +1,4 @@
-import { FLAG } from './constants.js';
+import { FLAG, ORDER_ID_PREFIX } from './constants.js';
 import type { Eligibility } from './eligibility.js';
 import type { Order } from './order.js';
 import { RULE } from './policy.js';
@@ -81,7 +81,7 @@ export function decideOutcome(state: DecisionInput): Outcome {
     return buildOutcome(
       'info',
       ['No order id provided.'],
-      ['Please reply with your order number (it starts with ORD-) so we can help.'],
+      [`Please reply with your order number (it starts with ${ORDER_ID_PREFIX}) so we can help.`],
     );
   if (lookup === 'not_found' || lookup === 'email_mismatch') {
     // Same outward behaviour for both cases: do not reveal whether the order exists.

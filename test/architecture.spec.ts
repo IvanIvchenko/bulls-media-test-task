@@ -192,6 +192,14 @@ describe('architecture: code conventions', () => {
     expect(publicInjected).toEqual([]);
   });
 
+  it('the order id format is written once, in domain/constants.ts', () => {
+    // A second copy is how the reply guard could stop recognising ids that validation still accepts.
+    const offenders = files
+      .filter((file) => file.path !== 'domain/constants.ts' && /ORD-(\\d|\d|\[)/.test(file.text))
+      .map((file) => file.path);
+    expect(offenders).toEqual([]);
+  });
+
   it('Zod schemas are named nameSchema', () => {
     const bad = files.flatMap((file) =>
       [...file.text.matchAll(/export const (\w+) = z\./g)]
